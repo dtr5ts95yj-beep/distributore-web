@@ -171,6 +171,16 @@ export class Gestionale {
     return a && this.s.prodotti[a.codice] ? a.codice : null;
   }
 
+  /** Codici AS400 più probabili per una descrizione del PDF (parole in comune con la descrizione AS400). */
+  suggerisci(descrizionePdf, quanti = 3) {
+    const parole = (t) => new Set(chiave(t).replace(/[.,]/g, ' ').split(' ').filter((w) => w.length > 1 && !['DA', 'DI', 'PER', 'CON', 'MM', 'GR', 'TG'].includes(w)));
+    const pdf = parole(descrizionePdf);
+    if (!pdf.size) return [];
+    return Object.values(this.s.prodotti)
+      .map((p) => { const a = parole(p.descrizione); let n = 0; for (const w of pdf) if (a.has(w)) n++; return { codice: p.codice, punti: n / Math.max(pdf.size, a.size) }; })
+      .filter((x) => x.punti > 0).sort((a, b) => b.punti - a.punti || a.codice.localeCompare(b.codice)).slice(0, quanti).map((x) => x.codice);
+  }
+
   zipGiaImportato(nome, sha) { return this.s.zip.find((z) => (sha && z.sha === sha) || z.nome === nome); }
 
   /** Applica uno ZIP letto con leggiZip. Ritorna un riepilogo. */

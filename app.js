@@ -4,7 +4,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.0';
+const VERSIONE = '1.1';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -323,14 +323,23 @@ function foglioDrive() {
       <div class="riga-titolo" style="align-items:center"><span class="tenue">Cartella: <b style="color:var(--testo)">${esc(g.s.impostazioni.drive_cartella_nome || 'non scelta')}</b></span>
       <button type="button" class="btn vuoto piccolo" data-a="controlla">Controlla ora</button></div></div>
     ${g.s.sospese.length ? `<h2 style="color:var(--arancio)">${g.s.sospese.length} da abbinare</h2>
-      <datalist id="codici">${codici.map((c) => `<option value="${esc(c)}">${esc(g.prodotto(c).descrizione)}</option>`).join('')}</datalist>
       ${g.s.sospese.map((x, i) => `<form class="carta avviso-carta" data-sospesa="${i}">
         <div style="display:flex;flex-direction:column"><b>${esc(x.descrizione_pdf)}</b><small class="tenue">Codice PDF ${esc(x.codice_pdf)} · ${x.quantita} pezzi · ${esc(x.nome_zip)}</small></div>
-        <div class="campo"><label for="ab-${i}">Codice AS400</label><input id="ab-${i}" name="codice" list="codici" autocapitalize="characters" autocomplete="off" required></div>
+        <div class="campo"><label for="ab-${i}">Codice AS400</label>${sceltaCodice(`ab-${i}`, x.descrizione_pdf, codici)}</div>
         <div class="affianca"><button type="submit" class="btn piccolo">Abbina</button><button type="button" class="btn vuoto piccolo" data-a="ignora-riga" data-i="${i}">Ignora sempre</button></div>
         <small class="tenue">L'abbinamento vale anche per i prossimi ZIP.</small></form>`).join('')}` : ''}
     <h2>Ultimi ZIP</h2>
     <div class="lista">${ultimi.map((z) => `<div class="voce"><span class="corpo"><b class="taglia">${esc(z.nome)}</b><small>${z.dal ? 'prelievi del ' + isoIta(z.dal) : ''}${z.pezzi != null ? ' · ' + num(z.pezzi) + ' pezzi' : ''} · importato il ${isoIta((z.importato_il || '').slice(0, 10))}</small></span></div>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`);
+}
+
+function sceltaCodice(id, descrizionePdf, codici) {
+  const opz = (c) => `<option value="${esc(c)}">${esc(c)} – ${esc(g.prodotto(c).descrizione)}</option>`;
+  const consigliati = g.suggerisci(descrizionePdf);
+  return `<select id="${id}" name="codice" required>
+    <option value="">Scegli il codice…</option>
+    ${consigliati.length ? `<optgroup label="Più probabili">${consigliati.map(opz).join('')}</optgroup>` : ''}
+    <optgroup label="Tutti gli articoli">${codici.map(opz).join('')}</optgroup>
+  </select>`;
 }
 
 async function foglioCartelle() {
@@ -452,7 +461,8 @@ document.addEventListener('submit', (e) => {
     cambia(() => g.modificaArticolo(f.dataset.codice, dati), 'Articolo salvato.').then(chiudiFoglio);
   }
   if (f.dataset.sospesa !== undefined) {
-    const codice = new FormData(f).get('codice').trim().toUpperCase();
+    const codice = String(new FormData(f).get('codice') || '').trim().toUpperCase();
+    if (!codice) { avviso('Scegli il codice AS400.', true); return; }
     cambia(() => g.abbina(Number(f.dataset.sospesa), codice), (n) => `Abbinato: ${n} pezzi aggiunti al rifornimento.`).then(foglioDrive);
   }
 });
