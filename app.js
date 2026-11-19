@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.0';
+const VERSIONE = '4.1';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -942,8 +942,7 @@ function foglioArticolo(codice, modifica = false) {
     <h2>Codici e abbinamenti</h2>
     <div class="carta codici">
       <div class="cod-riga"><span class="cod-et">AS400</span><span class="cod-val"><b>${esc(codice)}</b><small>${esc(p.descrizione)}</small></span><button type="button" class="btn vuoto piccolo" data-a="rinomina" data-codice="${esc(codice)}">Cambia</button></div>
-      <div class="cod-riga alto"><span class="cod-et">PDF</span><span class="cod-val">${st.abbinamenti.length ? st.abbinamenti.map((a) => `<button type="button" class="cod-voce" data-a="abb-modifica" data-chiave="${esc(a.chiave)}" data-art="${esc(codice)}"><b>${esc(a.descrizione_pdf)}</b><small>codice PDF ${esc(a.codice_pdf || '—')} · cambia ›</small></button>`).join('') : '<small class="tenue">Nessuna descrizione del PDF</small>'}
-        <button type="button" class="link" data-a="abb-art" data-codice="${esc(codice)}">+ Aggiungi descrizione del PDF</button></span></div>
+      <div class="cod-riga alto"><span class="cod-et">PDF</span><span class="cod-val">${st.abbinamenti.length ? st.abbinamenti.map((a) => `<button type="button" class="cod-voce" data-a="abb-modifica" data-chiave="${esc(a.chiave)}" data-art="${esc(codice)}"><b>${esc(a.descrizione_pdf)}</b><small>codice PDF ${esc(a.codice_pdf || '—')} · cambia ›</small></button>`).join('') : '<small class="tenue">Nessuna descrizione del PDF</small>'}</span></div>
       <div class="cod-riga alto"><span class="cod-et">EAN</span><span class="cod-val">${(p.barcode || []).length ? p.barcode.map((b) => `<span class="cod-bar"><b>${esc(b)}</b><button type="button" class="link" data-a="togli-bar" data-codice="${esc(codice)}" data-testo="${esc(b)}">Togli</button></span>`).join('') : '<small class="tenue">Nessun barcode</small>'}
         <button type="button" class="link" data-a="bar-uno" data-codice="${esc(codice)}">+ Leggi il barcode con la fotocamera</button></span></div>
     </div>
