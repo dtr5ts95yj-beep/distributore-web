@@ -13,6 +13,51 @@ export const TIPI = {
 
 export const chiave = (t) => String(t ?? '').toUpperCase().replace(/\s+/g, ' ').trim();
 
+// ------------------------------------------------------------------ somiglianza (come abbinamento.py)
+const SINONIMI = { BOMB: 'BOMBOLETTA', GUANTI: 'GUANTO', SALD: 'SALDATURA', AURICOL: 'AURICOLARE', PENNARELLI: 'PENNARELLO', PUNTE: 'PUNTA', DISCHI: 'DISCO', LAME: 'LAMA', OCCHIALE: 'OCCHIALI' };
+const VUOTE = new Set(['A', 'DA', 'DI', 'PER', 'IL', 'LA', 'LO', 'MM', 'D', 'TG', 'MT', 'G', 'GR', 'EX', 'DEL', 'DELLA', 'CON', 'IN', 'E', 'N', 'NR', 'PZ']);
+function parole(t) {
+  t = chiave(t).replace(/,/g, '.').replace(/(\d)\s*X\s*(\d)/g, '$1X$2');
+  return (t.match(/\d+(?:\.\d+)?(?:X\d+(?:\.\d+)?)*|[A-Z]+/g) || []).map((p) => SINONIMI[p] || p).filter((p) => !VUOTE.has(p));
+}
+function numeri(pp) {
+  const n = new Set();
+  for (const p of pp) if (/^\d/.test(p)) for (const x of p.split('X')) n.add(x.includes('.') ? x.replace(/0+$/, '').replace(/\.$/, '') : x);
+  return n;
+}
+const simili = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && a.slice(0, 5) === b.slice(0, 5));
+function rapporto(a, b) {          // come difflib.SequenceMatcher.ratio (Ratcliff/Obershelp)
+  const conta = (a, b) => {
+    if (!a || !b) return 0;
+    let best = 0, ia = 0, ib = 0;
+    const prev = new Array(b.length + 1).fill(0);
+    for (let i = 1; i <= a.length; i++) {
+      let diag = 0;
+      for (let j = 1; j <= b.length; j++) {
+        const tmp = prev[j];
+        prev[j] = a[i - 1] === b[j - 1] ? diag + 1 : 0;
+        if (prev[j] > best) { best = prev[j]; ia = i - best; ib = j - best; }
+        diag = tmp;
+      }
+    }
+    if (!best) return 0;
+    return best + conta(a.slice(0, ia), b.slice(0, ib)) + conta(a.slice(ia + best), b.slice(ib + best));
+  };
+  return (a.length + b.length) ? 2 * conta(a, b) / (a.length + b.length) : 1;
+}
+export function somiglianza(pdf, as400) {
+  const pa = parole(pdf), pb = parole(as400);
+  if (!pa.length || !pb.length) return 0;
+  const wa = pa.filter((p) => !/^\d/.test(p)), wb = pb.filter((p) => !/^\d/.test(p));
+  const na = numeri(pa), nb = numeri(pb);
+  const pw = wb.filter((x) => wa.some((y) => simili(x, y))).length / Math.max(1, wb.length);
+  const comuni = [...nb].filter((x) => na.has(x)).length;
+  const pn = nb.size ? comuni / nb.size : (na.size ? 0.8 : 1);
+  let punti = 0.55 * pw + 0.30 * pn + 0.15 * rapporto(pa.join(' '), pb.join(' '));
+  if (na.size && nb.size && !comuni) punti *= 0.6;
+  return Math.round(100 * punti);
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 export function oggiIso(d = new Date()) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 export function adessoIso(d = new Date()) { return `${oggiIso(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
@@ -144,6 +189,12 @@ export function statoVuoto() {
 export function normalizza(s) {
   const v = Object.assign(statoVuoto(), s || {});
   v.impostazioni = Object.assign(statoVuoto().impostazioni, v.impostazioni || {});
+  if (!v.rifornito_migrato) {
+    // dati del programma del PC: gli ZIP importati prima dell'ultimo rifornimento stampato sono già riportati
+    const ultimo = v.ultimo_documento || (String(v.esportato_da || '').includes('17/11/2026') ? '2026-11-13 12:23:59' : '');
+    if (ultimo) for (const z of v.zip) if (!z.rifornito && (z.importato_il || '') <= ultimo) z.rifornito = ultimo;
+    v.rifornito_migrato = true;
+  }
   return v;
 }
 
@@ -173,14 +224,10 @@ export class Gestionale {
     return a && this.s.prodotti[a.codice] ? a.codice : null;
   }
 
-  /** Codici AS400 più probabili per una descrizione del PDF (parole in comune con la descrizione AS400). */
+  /** Codici AS400 più probabili per una descrizione del PDF (stesso punteggio del programma). */
   suggerisci(descrizionePdf, quanti = 3) {
-    const parole = (t) => new Set(chiave(t).replace(/[.,]/g, ' ').split(' ').filter((w) => w.length > 1 && !['DA', 'DI', 'PER', 'CON', 'MM', 'GR', 'TG'].includes(w)));
-    const pdf = parole(descrizionePdf);
-    if (!pdf.size) return [];
-    return Object.values(this.s.prodotti)
-      .map((p) => { const a = parole(p.descrizione); let n = 0; for (const w of pdf) if (a.has(w)) n++; return { codice: p.codice, punti: n / Math.max(pdf.size, a.size) }; })
-      .filter((x) => x.punti > 0).sort((a, b) => b.punti - a.punti || a.codice.localeCompare(b.codice)).slice(0, quanti).map((x) => x.codice);
+    return Object.values(this.s.prodotti).map((p) => ({ codice: p.codice, punti: somiglianza(descrizionePdf, p.descrizione) }))
+      .filter((x) => x.punti >= 35).sort((a, b) => b.punti - a.punti || a.codice.localeCompare(b.codice)).slice(0, quanti);
   }
 
   /** Gli ultimi n giorni di prelievo (fino a ieri) con il loro ZIP: per la vista "a colpo d'occhio". */
@@ -273,6 +320,32 @@ export class Gestionale {
     };
   }
 
+  /** Calendario di un mese: per giorno (quello dei prelievi) gli ZIP, articoli e pezzi; verde = da riportare, rosso = riportato. */
+  calendario(inizio, fine) {
+    const giorni = {};
+    for (const z of this.s.zip) {
+      if (z.nascosto) continue;
+      const g = z.al || z.dal;
+      if (!g || g < inizio || g > fine) continue;
+      const d = this.dettaglioZip(z.nome);
+      const cod = new Set((d.dettaglio || []).filter((r) => r.cod && r.esito === 'scaricata').map((r) => r.cod));
+      const x = (giorni[g] ||= { file: 0, riportati: 0, articoli: 0, pezzi: 0, zip: [] });
+      x.file++; x.riportati += z.rifornito ? 1 : 0; x.articoli += cod.size; x.pezzi += d.pezzi || 0; x.zip.push(z.nome);
+    }
+    for (const x of Object.values(giorni)) x.stato = x.riportati === x.file ? 'riportato' : 'da_riportare';
+    return giorni;
+  }
+
+  /** Prelievi di una settimana (da lunedì): per articolo i pezzi giorno per giorno. */
+  prelieviSettimana(lunedi) {
+    const giorni = [...Array(7)].map((_, i) => piuGiorni(lunedi, i));
+    const per = {};
+    giorni.forEach((g, i) => { for (const [cod, q] of Object.entries(this.s.consumi[g] || {})) { (per[cod] ||= Array(7).fill(0))[i] += q; } });
+    const righe = Object.entries(per).map(([codice, gg]) => ({ codice, descrizione: (this.s.prodotti[codice] || {}).descrizione || '', giorni: gg, totale: gg.reduce((a, b) => a + b, 0) }))
+      .sort((a, b) => b.totale - a.totale || a.codice.localeCompare(b.codice));
+    return { giorni, righe, totale: righe.reduce((t, r) => t + r.totale, 0), perGiorno: giorni.map((_, i) => righe.reduce((t, r) => t + r.giorni[i], 0)) };
+  }
+
   zipGiaImportato(nome, sha) { return this.s.zip.find((z) => (sha && z.sha === sha) || z.nome === nome); }
 
   /** Applica uno ZIP letto con leggiZip. Ritorna un riepilogo. */
@@ -314,9 +387,43 @@ export class Gestionale {
     const giorno = letto.dal || oggiIso();
     const c = (this.s.consumi[giorno] ||= {});
     c[codice] = (c[codice] || 0) + q;
-    const b = this.s.bozza.find((x) => x.codice === codice);
-    if (b) { b.proposta += q; b.quantita += q; } else this.s.bozza.push({ codice, descrizione: p.descrizione, proposta: q, quantita: q });
+    let b = this.s.bozza.find((x) => x.codice === codice);
+    if (b) { b.proposta += q; b.quantita += q; } else { b = { codice, descrizione: p.descrizione, proposta: q, quantita: q }; this.s.bozza.push(b); }
+    this._quadraBlister(b);
   }
+
+  /** Articolo in blister: la proposta si arrotonda al blister intero, per eccesso (come il programma). */
+  _quadraBlister(b) {
+    const p = this.s.prodotti[b.codice];
+    if (!p || !p.in_blister || !p.pezzi_blister) return;
+    const n = p.pezzi_blister;
+    const nuova = Math.ceil(b.proposta / n) * n;
+    if (nuova !== b.proposta) { b.quantita += nuova - b.proposta; b.proposta = nuova; }
+  }
+
+  /** Righe del rifornimento con quello che serve per decidere: giacenza ora/dopo, carico, spira, blister. */
+  bozzaDettaglio() {
+    return [...this.s.bozza].sort((a, b) => a.codice.localeCompare(b.codice)).map((b) => {
+      const p = this.s.prodotti[b.codice] || {};
+      const dopo = p.quantita == null ? null : p.quantita + b.quantita;
+      const spira = p.pezzi_spira;
+      return { ...b, descrizione: p.descrizione || b.descrizione, ora: p.quantita, dopo, carico: p.carico_completo, magazzino: p.magazzino || 0,
+        oltre: p.carico_completo != null && dopo != null && dopo > p.carico_completo, eccesso: p.carico_completo != null && dopo != null ? Math.max(0, dopo - p.carico_completo) : 0,
+        spira, fuori_spira: !!(spira && b.quantita % spira), blister: p.in_blister ? p.pezzi_blister : null, modificata: b.quantita !== b.proposta };
+    });
+  }
+
+  aggiungiABozza(codice, q) {
+    const p = this.s.prodotti[codice];
+    if (!p) throw new Error(`L'articolo ${codice} non esiste.`);
+    q = Math.round(Number(q));
+    if (!(q > 0)) throw new Error('Scrivi quanti pezzi.');
+    const b = this.s.bozza.find((x) => x.codice === codice);
+    if (b) b.quantita += q; else this.s.bozza.push({ codice, descrizione: p.descrizione, proposta: 0, quantita: q });
+    this._tocca();
+  }
+
+  togliDaBozza(codice) { this.s.bozza = this.s.bozza.filter((b) => b.codice !== codice); this._tocca(); }
 
   abbina(indiceSospesa, codice) {
     const sp = this.s.sospese[indiceSospesa];
@@ -389,6 +496,7 @@ export class Gestionale {
           `${ecc} pezzi oltre il carico completo spostati in magazzino (ora ${p.magazzino})`, ora);
       }
     }
+    for (const z of this.s.zip) if (!z.rifornito) z.rifornito = ora;      // calendario: rosso = già riportato
     this.s.rifornimenti.push({ data_ora: ora, articoli: righe.length, pezzi });
     this.s.bozza = [];
     this._tocca();
