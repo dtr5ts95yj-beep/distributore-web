@@ -369,7 +369,8 @@ function impostazioni() {
   <div class="carta">
     <div class="tenue">Cartella degli ZIP: <b style="color:var(--testo)">${esc(imp.drive_cartella_nome || 'non scelta')}</b></div>
     <button type="button" class="btn vuoto piccolo" data-a="scegli-cartella" ${drive.token() ? '' : 'disabled'}>Scegli la cartella</button>
-    <div class="campo"><label for="partenza">Prendi gli ZIP a partire dal giorno</label><input id="partenza" type="date" value="${esc(imp.zip_partenza)}" data-a-cambio="partenza"></div>
+    <div class="campo"><label for="partenza">Prendi i prelievi a partire dal giorno</label><input id="partenza" type="date" value="${esc(imp.zip_partenza ? piuGiorni(imp.zip_partenza, -1) : '')}" data-a-cambio="partenza"></div>
+    <small class="tenue">È il giorno dei prelievi, come nel calendario. Lo ZIP di un giorno arriva su Drive il giorno dopo: ci penso io. I giorni prima di questa data restano quelli importati dal programma del PC.</small>
     <button type="button" class="btn secondario piccolo" data-a="controlla">Controlla Drive adesso</button>
   </div>`;
 }
@@ -637,7 +638,7 @@ document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
-  if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value; g.s.aggiornato = new Date().toISOString(); }, 'Data di partenza salvata.');
+  if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value ? piuGiorni(t.value, 1) : ''; g.s.aggiornato = new Date().toISOString(); }, `Prelievi presi dal ${isoIta(t.value)}.`);
 });
 document.addEventListener('submit', (e) => {
   e.preventDefault();

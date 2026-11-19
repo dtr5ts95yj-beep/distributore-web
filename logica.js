@@ -238,7 +238,7 @@ export class Gestionale {
       const zips = this.s.zip.filter((z) => !z.nascosto && z.dal && g >= z.dal && g <= (z.al || z.dal));
       const stato = zips.length ? (zips.some((z) => z.completo === false) ? 'controlla' : 'ok')
         : this.s.giorni_ignorati.includes(g) ? 'ignorato'
-        : (this.s.impostazioni.zip_partenza && g < this.s.impostazioni.zip_partenza) ? 'prima' : 'manca';
+        : (this.s.impostazioni.zip_partenza && g < piuGiorni(this.s.impostazioni.zip_partenza, -1)) ? 'prima' : 'manca';
       out.push({ giorno: g, stato, zip: zips });
     }
     return out;
@@ -538,7 +538,7 @@ export class Gestionale {
   }
 
   giorniMancanti(oggi = oggiIso()) {
-    const partenza = this.s.impostazioni.zip_partenza;
+    const partenza = this.s.impostazioni.zip_partenza ? piuGiorni(this.s.impostazioni.zip_partenza, -1) : '';   // giorno dei prelievi
     if (!partenza) return [];
     const ieri = piuGiorni(oggi, -1);
     let g = partenza > piuGiorni(ieri, -89) ? partenza : piuGiorni(ieri, -89);
