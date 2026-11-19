@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.6';
+const VERSIONE = '2.7';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -359,7 +359,7 @@ function oggi() {
   const giro = g.prelieviGiro();
   const d = new Date();
   const el = g.elenco();
-  const riordino = el.filter((p) => p.sotto || p.negativo || (p.carico_completo != null && p.quantita < p.carico_completo && !(p.magazzino > 0)));
+  const riordino = el.filter((p) => p.sotto || p.negativo || (p.quantita <= 0 && !(p.magazzino > 0)));
   const bozza = g.s.bozza.filter((b) => b.quantita > 0);
   const pezziBozza = bozza.reduce((t, b) => t + b.quantita, 0);
   const sosp = g.s.sospese.length;
@@ -414,7 +414,7 @@ function articoli() {
   const giroArt = Object.fromEntries(g.prelieviGiro().righe.map((r) => [r.codice, r.totale]));
   const q = chiave(ui.cerca);
   const tutti = g.elenco();
-  const filtri = { tutti: () => true, sotto: (p) => p.sotto || p.negativo, magazzino: (p) => p.magazzino > 0, riordino: (p) => p.sotto || p.negativo || (p.carico_completo != null && p.quantita < p.carico_completo && !(p.magazzino > 0)) };
+  const filtri = { tutti: () => true, sotto: (p) => p.sotto || p.negativo, magazzino: (p) => p.magazzino > 0, riordino: (p) => p.sotto || p.negativo || (p.quantita <= 0 && !(p.magazzino > 0)) };
   const el = tutti.filter(filtri[ui.filtro]).filter((p) => !q || chiave(p.codice + ' ' + p.descrizione).includes(q));
   if (ui.ordine === 'prelevati') el.sort((a, b) => (giroArt[b.codice] || 0) - (giroArt[a.codice] || 0) || a.codice.localeCompare(b.codice));
   const chip = (k, t, n) => `<button type="button" class="chip" data-a="filtro" data-filtro="${k}" aria-pressed="${ui.filtro === k}">${t} ${n}</button>`;
@@ -433,7 +433,9 @@ function articoli() {
       : !manca ? '<span style="color:var(--verde)">Distributore pieno</span>'
       : p.quantita <= 0 && p.magazzino > 0 ? `<span style="color:var(--arancio)">Distributore vuoto: adesso i pezzi escono dal magazzino</span>`
       : p.magazzino > 0 ? `<span style="color:var(--tenue)">Mancano ${num(manca)} per il pieno · il magazzino resta intatto finché il distributore non è vuoto</span>`
-      : `<span style="color:var(--rosso)">Mancano ${num(manca)} per il pieno · magazzino vuoto</span>`;
+      : p.quantita <= 0 ? `<span style="color:var(--rosso)">Distributore vuoto e magazzino vuoto</span>`
+      : p.sotto ? `<span style="color:var(--arancio)">Mancano ${num(manca)} per il pieno · sotto la scorta minima</span>`
+      : `<span style="color:var(--tenue)">Mancano ${num(manca)} per il pieno: tornano con il rifornimento</span>`;
     return `<button type="button" class="articolo${p.sotto ? ' sotto' : ''}${p.negativo ? ' negativo' : ''}" data-a="articolo" data-codice="${esc(p.codice)}">
       <span class="testa"><span style="display:flex;flex-direction:column;min-width:0"><b style="font-size:16px">${esc(p.codice)}</b><small class="tenue">${esc(p.descrizione)}</small></span>
       ${giroArt[p.codice] ? `<span class="prel"><small>prelevati</small><b>${num(giroArt[p.codice])}</b></span>` : ''}</span>
