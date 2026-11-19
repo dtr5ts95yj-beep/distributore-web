@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '3.7';
+const VERSIONE = '3.8';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -226,7 +226,7 @@ function disegna() {
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, magazzino, inventario, zipimportati, storicoimporta, ignorate, info };
+  const pagine = { barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
@@ -641,9 +641,8 @@ function altro() {
     ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
   </div>
-  <h2>Magazzino e inventario</h2>
+  <h2>Inventario</h2>
   <div class="lista">
-    ${voce('magazzino', 'Magazzino', `${conMag} articoli con pezzi di riserva · carica pezzi nuovi`)}
     ${voce('inventario', 'Inventario', 'Conta e correggi · foglio PDF · scorte minime')}
   </div>
   <h2>ZIP</h2>
@@ -667,23 +666,6 @@ function altro() {
   <div class="tenue" style="text-align:center;padding:10px">Distributore web ${VERSIONE} · AC</div>`;
 }
 
-function magazzino() {
-  const el = g.elenco().filter((p) => p.magazzino > 0).sort((a, b) => b.magazzino - a.magazzino);
-  const tot = el.reduce((t, p) => t + p.magazzino, 0);
-  const codici = Object.keys(g.s.prodotti).sort();
-  const ultimi = g.s.movimenti.filter((m) => ['DAL_MAGAZZINO', 'ECCESSO_MAGAZZINO', 'CORREZIONE_MAGAZZINO', 'REINTEGRO_MAGAZZINO'].includes(m.tipo)).sort((a, b) => b.data_ora.localeCompare(a.data_ora) || b.id - a.id).slice(0, 15);
-  return `<h1>Magazzino</h1>
-  <div class="tenue">I pezzi di riserva. Restano intatti finché il distributore non è vuoto: da lì in poi i prelievi escono dal magazzino. Quando riporti il rifornimento, prima riempio il distributore fino al carico completo e quelli in più rientrano qui.</div>
-  <div class="numeri"><div><span>In magazzino</span><strong style="color:var(--rosa)">${num(tot)}</strong><span>pezzi</span></div><div><span>Articoli</span><strong>${el.length}</strong><span>con riserva</span></div><div><span>Distributore</span><strong>${num(g.elenco().reduce((t, p) => t + p.quantita, 0))}</strong><span>pezzi</span></div></div>
-  <div class="carta"><b>Carica pezzi nuovi in magazzino</b><small class="tenue">Quando arrivano pezzi da mettere di riserva.</small>
-    <div class="campo"><label for="mag-art">Articolo</label><select id="mag-art"><option value="">Scegli l'articolo…</option>${codici.map((k) => `<option value="${esc(k)}">${esc(k)} – ${esc(g.prodotto(k).descrizione)}</option>`).join('')}</select></div>
-    <div class="affianca"><div class="campo"><label for="mag-q">Pezzi</label><input id="mag-q" type="number" inputmode="numeric" min="1" value="1"></div><button type="button" class="btn secondario" data-a="mag-carica" style="align-self:flex-end">Carica</button></div></div>
-  <h2>Cosa c'è in magazzino</h2>
-  <div class="lista">${el.map((p) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="taglia">${esc(p.descrizione)}</small><small>distributore ${num(p.quantita)}${p.carico_completo != null ? ' / ' + num(p.carico_completo) : ''} · totale ${num(p.disponibile)}</small></span><b style="font-size:20px">${num(p.magazzino)}</b></button>`).join('') || '<div class="vuoto-msg">Magazzino vuoto</div>'}</div>
-  <h2>Ultimi passaggi</h2>
-  <div class="lista">${ultimi.map((m) => `<button type="button" class="mov" data-a="articolo" data-codice="${esc(m.codice)}" style="background:none;border:0;width:100%;text-align:left"><span class="corpo"><b>${esc(m.codice)} · ${esc(TIPI[m.tipo] || m.tipo)}</b><small class="tenue">${isoIta(m.data_ora.slice(0, 10))} ${m.data_ora.slice(11, 16)} · ${esc(m.note || '')}</small></span></button>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`;
-}
-
 function inventario() {
   const el = g.elenco();
   const conti = ui.inventario;
@@ -691,11 +673,10 @@ function inventario() {
   return `<h1>Inventario</h1>
   <div class="carta"><b>Foglio d'inventario</b><small class="tenue">PDF A4 in bianco e nero con tutti gli articoli, le giacenze attuali, il barcode e lo spazio per scrivere i conteggi.</small>
     <button type="button" class="btn secondario" data-a="pdf-inventario">${ico.mail} Crea il foglio e mandalo</button></div>
-  <div class="carta"><b>Conta e correggi</b><small class="tenue">Scrivi solo quello che hai contato diverso. Applico tutto insieme e finisce nello storico.</small>
+  <div class="carta"><b>Conta e correggi</b><small class="tenue">Scrivi quanti pezzi hai in tutto di ogni articolo, solo quelli diversi. Fino al carico completo li metto nel distributore, quelli in più sono magazzino. Applico tutto insieme e finisce nello storico.</small>
     <button type="button" class="btn vuoto" data-a="scan" data-dove="inventario">${ico.barcode} Trova con il barcode</button></div>
-  <div class="lista">${el.map((p) => `<div class="inv" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small></span>
-    <label class="inv-c"><span>Distr. ${num(p.quantita)}</span><input type="number" inputmode="numeric" placeholder="${p.quantita}" value="${esc(conti[p.codice]?.distributore ?? '')}" data-inv="${esc(p.codice)}" data-campo="distributore" aria-label="Contati nel distributore ${esc(p.codice)}"></label>
-    <label class="inv-c"><span>Mag. ${num(p.magazzino)}</span><input type="number" inputmode="numeric" placeholder="${p.magazzino}" value="${esc(conti[p.codice]?.magazzino ?? '')}" data-inv="${esc(p.codice)}" data-campo="magazzino" aria-label="Contati in magazzino ${esc(p.codice)}"></label></div>`).join('')}</div>
+  <div class="lista">${el.map((p) => `<div class="inv" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small><small class="tenue">adesso ${num(p.quantita + (p.magazzino || 0))}${p.carico_completo != null ? ` · carico ${num(p.carico_completo)}` : ''}</small></span>
+    <label class="inv-c"><span>Totale contato</span><input type="number" inputmode="numeric" placeholder="${p.quantita + (p.magazzino || 0)}" value="${esc(conti[p.codice] ?? '')}" data-inv="${esc(p.codice)}" aria-label="Pezzi contati di ${esc(p.codice)}"></label></div>`).join('')}</div>
   <button type="button" class="btn" data-a="inv-applica" ${cambiati ? '' : 'disabled'}>Applica i conteggi${cambiati ? ` (${cambiati} articoli)` : ''}</button>
   <h2>Scorte minime</h2>
   <div class="carta"><small class="tenue">Come nel programma: una settimana di consumo medio degli ultimi 30 giorni. Si aggiornano da sole ogni 7 giorni${g.s.scorte_calcolate_il ? ` (ultima volta il ${isoIta(g.s.scorte_calcolate_il)})` : ''}.</small>
@@ -875,9 +856,9 @@ function foglioArticolo(codice, modifica = false) {
     apriFoglio(`<h1>Modifica ${esc(p.codice)}</h1>
       <form id="form-articolo" data-codice="${esc(codice)}" style="display:flex;flex-direction:column;gap:12px">
         ${campo('descrizione', 'Descrizione', p.descrizione, 'text')}
-        <div class="griglia2">${campo('quantita', 'Nel distributore', p.quantita)}${campo('magazzino', 'In magazzino', p.magazzino)}
+        <div class="griglia2">${campo('totale', 'Pezzi in tutto', (p.quantita || 0) + (p.magazzino || 0))}
         ${campo('carico_completo', 'Carico completo', p.carico_completo)}${campo('scorta_minima', 'Scorta minima', p.scorta_minima)}${campo('pezzi_spira', 'Pezzi per spira', p.pezzi_spira)}${campo('pezzi_blister', 'Pezzi per blister (vuoto = no)', p.in_blister ? p.pezzi_blister : '')}</div>
-        <small class="tenue">Ogni modifica finisce nello storico. Il magazzino si usa solo quando il distributore è a zero.</small>
+        <small class="tenue">Ogni modifica finisce nello storico. Dei pezzi in tutto, fino al carico completo sono nel distributore, quelli in più sono magazzino.</small>
         <div class="affianca"><button type="button" class="btn vuoto" data-a="articolo" data-codice="${esc(codice)}">Annulla</button><button type="submit" class="btn">Salva</button></div>
       </form>
       <button type="button" class="btn pericolo piccolo" data-a="elimina-articolo" data-codice="${esc(codice)}">Elimina l'articolo</button>`);
@@ -918,7 +899,7 @@ function foglioArticolo(codice, modifica = false) {
       <div class="cod-riga alto"><span class="cod-et">EAN</span><span class="cod-val">${(p.barcode || []).length ? p.barcode.map((b) => `<span class="cod-bar"><b>${esc(b)}</b><button type="button" class="link" data-a="togli-bar" data-codice="${esc(codice)}" data-testo="${esc(b)}">Togli</button></span>`).join('') : '<small class="tenue">Nessun barcode</small>'}
         <button type="button" class="link" data-a="bar-uno" data-codice="${esc(codice)}">+ Leggi il barcode con la fotocamera</button></span></div>
     </div>
-    <div class="affianca"><button type="button" class="btn secondario" data-a="modifica-articolo" data-codice="${esc(codice)}">Modifica</button><button type="button" class="btn vuoto" data-a="carica-mag" data-codice="${esc(codice)}">Carica in magazzino</button></div>
+    <div class="affianca"><button type="button" class="btn secondario" data-a="modifica-articolo" data-codice="${esc(codice)}">Modifica</button></div>
     <h2>Avanti e indietro: distributore e magazzino</h2>
     <div class="lista">${storia.map((m) => {
       const q = Number(m.quantita || 0);
@@ -1189,11 +1170,9 @@ const azioni = {
   'articolo': (el) => foglioArticolo(el.dataset.codice),
   'modifica-articolo': (el) => foglioArticolo(el.dataset.codice, true),
   'giorno-zip': (el) => foglioGiorno(el.dataset.giorno),
-  'mag-carica': () => { const k = $('#mag-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.caricaInMagazzino(k, $('#mag-q').value), 'Caricato in magazzino.'); },
-  'carica-mag': (el) => { const q = prompt(`Quanti pezzi nuovi di ${el.dataset.codice} metti in magazzino?`, '1'); if (!q) return; cambia(() => g.caricaInMagazzino(el.dataset.codice, q), 'Caricato in magazzino.').then(() => foglioArticolo(el.dataset.codice)); },
   'elimina-articolo': async (el) => { if (!confirm(`Elimino ${el.dataset.codice}? Spariscono anche i suoi abbinamenti. Lo storico resta.`)) return; await backupLocale(`prima di eliminare ${el.dataset.codice}`); cambia(() => g.eliminaArticolo(el.dataset.codice), 'Articolo eliminato.').then(chiudiFoglio); },
   'pdf-inventario': async (el) => { el.disabled = true; try { const ora = new Date(); const b = await pdfInventario(g.elenco(), `${Object.keys(g.s.prodotti).length} articoli · giacenze al ${ora.toLocaleDateString('it-IT')} ${ora.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`); await condividi(new File([b], `Inventario_${isoIta(oggiIso()).replace(/\//g, '-')}.pdf`, { type: 'application/pdf' }), 'Inventario distributore'); } catch (e) { avviso('PDF non creato: ' + e.message, true); } el.disabled = false; },
-  'inv-applica': async () => { const n = Object.keys(ui.inventario).length; if (!confirm(`Applico i conteggi di ${n} articoli?`)) return; await backupLocale('prima dell\'inventario'); cambia(() => g.applicaInventario(ui.inventario), (k) => `Inventario applicato: ${k} correzioni.`).then(() => { ui.inventario = {}; disegna(); }); },
+  'inv-applica': async () => { const n = Object.keys(ui.inventario).length; if (!confirm(`Applico i conteggi di ${n} articoli?`)) return; await backupLocale('prima dell\'inventario'); cambia(() => g.applicaInventarioTotale(ui.inventario), (k) => `Inventario applicato: ${k} correzioni.`).then(() => { ui.inventario = {}; disegna(); }); },
   'ricalcola-scorte': () => cambia(() => g.ricalcolaScorte(true), (n) => `Scorte minime ricalcolate: ${n} articoli aggiornati.`),
   'azzera': async () => { if (!confirm('Azzero distributore e magazzino di TUTTI gli articoli?')) return; if (!confirm('Sicuro? Prima faccio un backup nel telefono.')) return; await backupLocale('prima di azzerare le giacenze'); cambia(() => g.azzeraGiacenze(), 'Giacenze azzerate.'); },
   'annulla-zip': async (el) => { if (!confirm(`Annullo ${el.dataset.nome}? I suoi pezzi tornano nel distributore e spariscono dal rifornimento.`)) return; await backupLocale(`prima di annullare ${el.dataset.nome}`); cambia(() => g.annullaZip(el.dataset.nome), (r) => `ZIP annullato: ${r.pezzi} pezzi rimessi.`); },
@@ -1308,10 +1287,8 @@ $('#velo').addEventListener('click', chiudiFoglio);
 document.addEventListener('input', (e) => {
   if (e.target.id === 'ctrl-cerca') { const q = chiave(e.target.value); document.querySelectorAll('.ctrl-riga').forEach((r) => { r.hidden = !!q && !r.dataset.cerca.includes(q); }); return; }
   if (e.target.dataset.inv) {
-    const c = e.target.dataset.inv, campo = e.target.dataset.campo, v = e.target.value;
-    const r = (ui.inventario[c] ||= {});
-    if (v === '') delete r[campo]; else r[campo] = v;
-    if (!Object.keys(r).length) delete ui.inventario[c];
+    const c = e.target.dataset.inv, v = e.target.value;
+    if (v === '') delete ui.inventario[c]; else ui.inventario[c] = v;
     const b = document.querySelector('[data-a="inv-applica"]');
     if (b) { const n = Object.keys(ui.inventario).length; b.disabled = !n; b.textContent = `Applica i conteggi${n ? ` (${n} articoli)` : ''}`; }
     return;
@@ -1341,6 +1318,10 @@ document.addEventListener('submit', (e) => {
   if (f.id === 'form-articolo') {
     const dati = Object.fromEntries(new FormData(f));
     const pb = String(dati.pezzi_blister || '').trim(); delete dati.pezzi_blister;
+    if ('totale' in dati) {   // il totale si divide da solo: fino al carico completo distributore, il resto magazzino
+      const t = Math.max(0, Math.round(Number(dati.totale) || 0)), cc = String(dati.carico_completo ?? '').trim() === '' ? null : Math.round(Number(dati.carico_completo));
+      const d = cc != null ? Math.min(t, cc) : t; dati.quantita = d; dati.magazzino = t - d; delete dati.totale;
+    }
     const pr = g.prodotto(f.dataset.codice); if (pr) { pr.in_blister = !!(pb && Number(pb) > 0); pr.pezzi_blister = pr.in_blister ? Math.round(Number(pb)) : null; }
     cambia(() => g.modificaArticolo(f.dataset.codice, dati), 'Articolo salvato.').then(() => foglioArticolo(f.dataset.codice));
   }

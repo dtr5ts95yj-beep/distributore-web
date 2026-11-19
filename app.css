@@ -147,7 +147,7 @@ main > * { flex-shrink: 0; }
 .legenda i.verde { background: #1c4a33; } .legenda i.rossa { background: #6a2030; } .legenda i.manca { border: 1.5px dashed #ff8a8a; }
 .grafico.sett7 { grid-template-columns: repeat(7, minmax(0, 1fr)); height: 100px; background: none; padding: 0; }
 
-.inv { display: grid; grid-template-columns: minmax(0, 1fr) 78px 78px; gap: 8px; align-items: center; padding: 8px 12px; }
+.inv { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 8px; align-items: center; padding: 8px 12px; }
 .inv .corpo { display: flex; flex-direction: column; min-width: 0; }
 .inv-c { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--tenue); }
 .inv-c input { height: 40px; border-radius: 10px; border: 1px solid var(--bordo); background: var(--fondo); padding: 0 8px; font-size: 16px; width: 100%; }

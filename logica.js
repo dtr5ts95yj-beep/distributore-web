@@ -677,6 +677,18 @@ export class Gestionale {
   }
 
   /** Inventario: conteggi {codice: {distributore, magazzino}} applicati tutti insieme. */
+  /** Inventario col totale contato: fino al carico completo è distributore, quello che va oltre è magazzino. */
+  applicaInventarioTotale(totali) {
+    const conti = {};
+    for (const [codice, v] of Object.entries(totali || {})) {
+      const p = this.s.prodotti[codice]; if (!p || v === '' || v == null) continue;
+      const t = Math.max(0, Math.round(Number(v)));
+      const d = p.carico_completo != null ? Math.min(t, p.carico_completo) : t;
+      conti[codice] = { distributore: d, magazzino: t - d };
+    }
+    return this.applicaInventario(conti);
+  }
+
   applicaInventario(conti) {
     const ora = adessoIso();
     let n = 0;

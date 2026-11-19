@@ -82,7 +82,7 @@ export async function pdfInventario(articoli, info) {
   const font = await doc.embedFont(StandardFonts.Helvetica), gr = await doc.embedFont(StandardFonts.HelveticaBold);
   const nero = rgb(0, 0, 0), grigio = rgb(0.35, 0.35, 0.35), chiaro = rgb(0.85, 0.85, 0.85);
   const L = 595.28, H = 841.89, M = 28, ALTO = 34, TESTA = 22;
-  const col = [['CODICE', M, 86], ['DESCRIZIONE', M + 86, 176], ['DISTR.', M + 262, 40], ['MAG.', M + 302, 40], ['BARCODE', M + 342, 128], ['CONTATI D.', M + 470, 35], ['M.', M + 505, 34]];
+  const col = [['CODICE', M, 86], ['DESCRIZIONE', M + 86, 176], ['TOTALE', M + 262, 50], ['BARCODE', M + 312, 128], ['CONTATI', M + 440, 99]];
   const tronca = (t, f, z, w) => { t = pulisci(t); while (t && f.widthOfTextAtSize(t, z) > w) t = t.slice(0, -1); return t; };
   const pagine = []; let pag, y;
   const nuova = (prima) => {
@@ -100,9 +100,9 @@ export async function pdfInventario(articoli, info) {
     for (const [, x] of col.slice(1)) pag.drawLine({ start: { x, y: base }, end: { x, y }, thickness: 0.6, color: grigio });
     pag.drawText(tronca(a.codice, gr, 10, 80), { x: M + 4, y: base + 12, size: 10, font: gr, color: nero });
     pag.drawText(tronca(a.descrizione, font, 8.5, 170), { x: M + 90, y: base + 12, size: 8.5, font, color: nero });
-    for (const [v, x] of [[a.quantita, M + 262], [a.magazzino || 0, M + 302]]) { const t = String(v); pag.drawText(t, { x: x + (40 - gr.widthOfTextAtSize(t, 12)) / 2, y: base + 11, size: 12, font: gr, color: nero }); }
+    { const t = String((a.quantita || 0) + (a.magazzino || 0)); pag.drawText(t, { x: M + 262 + (50 - gr.widthOfTextAtSize(t, 12)) / 2, y: base + 11, size: 12, font: gr, color: nero }); }
     const b = barre128(a.codice); const mod = Math.min(1, (128 - 8) / ([...b].reduce((t, c) => t + Number(c), 0) + 20));
-    let x = M + 342 + (128 - mod * ([...b].reduce((t, c) => t + Number(c), 0) + 20)) / 2 + 10 * mod;
+    let x = M + 312 + (128 - mod * ([...b].reduce((t, c) => t + Number(c), 0) + 20)) / 2 + 10 * mod;
     [...b].forEach((c, i) => { const w = Number(c) * mod; if (i % 2 === 0) pag.drawRectangle({ x, y: base + 5, width: w, height: ALTO - 10, color: nero }); x += w; });
     y = base;
   }
