@@ -73,3 +73,39 @@ export async function pdfRifornimento(righe, info) {
 }
 
 export function nomeFile(oggi) { return `Rifornimento_${isoIta(oggi).replace(/\//g, '-')}.pdf`; }
+
+/** Foglio d'inventario: tutti gli articoli, con le giacenze del programma e lo spazio per i conteggi. */
+export async function pdfInventario(articoli, info) {
+  const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+  const doc = await PDFDocument.create();
+  doc.setTitle('Inventario distributore'); doc.setAuthor('AC');
+  const font = await doc.embedFont(StandardFonts.Helvetica), gr = await doc.embedFont(StandardFonts.HelveticaBold);
+  const nero = rgb(0, 0, 0), grigio = rgb(0.35, 0.35, 0.35), chiaro = rgb(0.85, 0.85, 0.85);
+  const L = 595.28, H = 841.89, M = 28, ALTO = 34, TESTA = 22;
+  const col = [['CODICE', M, 86], ['DESCRIZIONE', M + 86, 176], ['DISTR.', M + 262, 40], ['MAG.', M + 302, 40], ['BARCODE', M + 342, 128], ['CONTATI D.', M + 470, 35], ['M.', M + 505, 34]];
+  const tronca = (t, f, z, w) => { t = pulisci(t); while (t && f.widthOfTextAtSize(t, z) > w) t = t.slice(0, -1); return t; };
+  const pagine = []; let pag, y;
+  const nuova = (prima) => {
+    pag = doc.addPage([L, H]); pagine.push(pag); y = H - M;
+    if (prima) { pag.drawText('INVENTARIO DISTRIBUTORE', { x: M, y: y - 18, size: 18, font: gr, color: nero }); y -= 32; pag.drawText(pulisci(info), { x: M, y: y - 10, size: 9.5, font, color: grigio }); y -= 22; }
+    pag.drawRectangle({ x: M, y: y - TESTA, width: L - 2 * M, height: TESTA, color: chiaro });
+    for (const [t, x, w] of col) pag.drawText(t, { x: x + (w - gr.widthOfTextAtSize(t, 8)) / 2, y: y - 15, size: 8, font: gr, color: nero });
+    y -= TESTA;
+  };
+  nuova(true);
+  for (const a of articoli) {
+    if (y - ALTO < M + 20) nuova(false);
+    const base = y - ALTO;
+    pag.drawRectangle({ x: M, y: base, width: L - 2 * M, height: ALTO, borderColor: grigio, borderWidth: 0.6 });
+    for (const [, x] of col.slice(1)) pag.drawLine({ start: { x, y: base }, end: { x, y }, thickness: 0.6, color: grigio });
+    pag.drawText(tronca(a.codice, gr, 10, 80), { x: M + 4, y: base + 12, size: 10, font: gr, color: nero });
+    pag.drawText(tronca(a.descrizione, font, 8.5, 170), { x: M + 90, y: base + 12, size: 8.5, font, color: nero });
+    for (const [v, x] of [[a.quantita, M + 262], [a.magazzino || 0, M + 302]]) { const t = String(v); pag.drawText(t, { x: x + (40 - gr.widthOfTextAtSize(t, 12)) / 2, y: base + 11, size: 12, font: gr, color: nero }); }
+    const b = barre128(a.codice); const mod = Math.min(1, (128 - 8) / ([...b].reduce((t, c) => t + Number(c), 0) + 20));
+    let x = M + 342 + (128 - mod * ([...b].reduce((t, c) => t + Number(c), 0) + 20)) / 2 + 10 * mod;
+    [...b].forEach((c, i) => { const w = Number(c) * mod; if (i % 2 === 0) pag.drawRectangle({ x, y: base + 5, width: w, height: ALTO - 10, color: nero }); x += w; });
+    y = base;
+  }
+  pagine.forEach((p, i) => { const t = `Pagina ${i + 1} di ${pagine.length}`; p.drawText(t, { x: (L - font.widthOfTextAtSize(t, 8)) / 2, y: 14, size: 8, font, color: grigio }); });
+  return doc.save();
+}

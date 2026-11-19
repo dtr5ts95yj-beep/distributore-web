@@ -1,11 +1,11 @@
 import * as pdfjs from './lib/pdf.min.mjs';
-import { Gestionale, TIPI, leggiZip, oggiIso, isoIta, normalizza, chiave, piuGiorni } from './logica.js';
+import { Gestionale, TIPI, leggiZip, oggiIso, isoIta, normalizza, chiave, piuGiorni, dataZip as dataZipNome } from './logica.js';
 const lunediDi = (iso) => piuGiorni(iso, -((new Date(iso + 'T12:00:00').getDay() + 6) % 7));
 import { drive } from './drive.js';
-import { pdfRifornimento, nomeFile } from './stampa.js';
+import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.4';
+const VERSIONE = '1.5';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -23,9 +23,21 @@ const archivio = {
   async scrivi(k, v) { const db = await this.apri(); return new Promise((ok, ko) => { const t = db.transaction('dati', 'readwrite'); t.objectStore('dati').put(v, k); t.oncomplete = () => ok(); t.onerror = () => ko(t.error); }); },
 };
 
+// backup automatici nel telefono: gli ultimi 10, prima delle operazioni delicate e uno al giorno
+async function backupLocale(motivo) {
+  try {
+    const elenco = (await archivio.leggi('backup_elenco')) || [];
+    const chiave = 'backup:' + new Date().toISOString();
+    await archivio.scrivi(chiave, JSON.parse(JSON.stringify(g.s)));
+    elenco.push({ chiave, motivo, ora: new Date().toISOString(), articoli: Object.keys(g.s.prodotti).length });
+    while (elenco.length > 10) { const via = elenco.shift(); await archivio.scrivi(via.chiave, null); }
+    await archivio.scrivi('backup_elenco', elenco);
+  } catch (e) { console.warn('backup locale', e); }
+}
+
 // ------------------------------------------------------------------ stato della pagina
 let g = null;                       // Gestionale
-const ui = { scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
+const ui = { scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, inventario: {}, meseStorico: '', mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (n) => Number(n || 0).toLocaleString('it-IT');
@@ -126,7 +138,7 @@ function disegna() {
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo };
+  const pagine = { prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, magazzino, inventario, zipimportati, storicoimporta, ignorate, info };
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
@@ -164,13 +176,15 @@ function listaCaricamento() {
 }
 
 function strisciaZip() {
-  const giorni = g.giorniZip(7);
+  // solo i giorni dalla data di partenza in avanti: quelli prima li gestiva il programma
+  const part = g.s.impostazioni.zip_partenza ? piuGiorni(g.s.impostazioni.zip_partenza, -1) : '';
+  const giorni = g.giorniZip(7).filter((x) => !part || x.giorno >= part);
   const mancano = giorni.filter((x) => x.stato === 'manca').length;
   const controlla = giorni.filter((x) => x.stato === 'controlla').length;
   const frase = mancano ? `Manca${mancano === 1 ? '' : 'no'} ${mancano} ${mancano === 1 ? 'giorno' : 'giorni'}` : controlla ? 'Uno ZIP da controllare' : 'Tutti gli ZIP ci sono';
   const SIGLE = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
   return `<div class="carta">
-    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">ZIP degli ultimi 7 giorni</b><span class="tenue" style="color:${mancano ? 'var(--rosso)' : controlla ? 'var(--arancio)' : 'var(--verde)'};font-weight:700">${frase}</span></div>
+    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">ZIP ${giorni.length < 7 && part ? 'dal ' + isoIta(part).slice(0, 5) : 'degli ultimi 7 giorni'}</b><span class="tenue" style="color:${mancano ? 'var(--rosso)' : controlla ? 'var(--arancio)' : 'var(--verde)'};font-weight:700">${frase}</span></div>
     <div class="striscia">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
       return `<button type="button" class="tile ${x.stato}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
@@ -315,7 +329,9 @@ function rifornimento() {
   ${attive.length ? `<div class="azioni">
     <button type="button" class="btn" data-a="pdf">${ico.mail} Crea PDF con barcode e mandalo</button>
     <button type="button" class="btn vuoto" data-a="fatto">Rifornimento fatto</button></div>` : ''}
-  ${g.s.rifornimenti.length ? `<h2>Ultimi rifornimenti</h2><div class="lista">${g.s.rifornimenti.slice(-5).reverse().map((r) => `<div class="voce"><span class="corpo"><b>${isoIta(r.data_ora.slice(0, 10))} alle ${r.data_ora.slice(11, 16)}</b><small>${r.articoli} articoli · ${num(r.pezzi)} pezzi</small></span></div>`).join('')}</div>` : ''}`;
+  ${righe.length ? '<button type="button" class="btn vuoto piccolo" data-a="svuota-bozza">Svuota il rifornimento</button>' : ''}
+  ${g.s.rifornimenti.length ? `<h2>Rifornimenti fatti</h2><div class="lista">${g.s.rifornimenti.slice(-8).reverse().map((r, i) => `<div class="voce"><span class="corpo"><b>${isoIta(r.data_ora.slice(0, 10))} alle ${r.data_ora.slice(11, 16)}</b><small>${r.articoli} articoli · ${num(r.pezzi)} pezzi</small></span>
+    ${r.righe ? `<button type="button" class="btn vuoto piccolo" data-a="ripdf" data-ora="${esc(r.data_ora)}">PDF</button>` : ''}${i === 0 && r.righe ? '<button type="button" class="btn vuoto piccolo" data-a="annulla-rif">Annulla</button>' : ''}</div>`).join('')}</div>` : ''}`;
 }
 
 function calendario() {
@@ -370,7 +386,8 @@ const GRUPPI = { tutti: null, zip: ['SCARICO_ZIP'], rif: ['RIFORNIMENTO'], mag: 
 function storico() {
   const q = chiave(ui.cercaStorico);
   const tipi = GRUPPI[ui.tipoStorico];
-  const tutti = g.s.movimenti.filter((m) => (!tipi || tipi.includes(m.tipo)) && (!q || chiave(m.codice + ' ' + m.descrizione).includes(q)));
+  const tutti = g.s.movimenti.filter((m) => (!tipi || tipi.includes(m.tipo)) && (!ui.meseStorico || (m.data_ora || '').startsWith(ui.meseStorico)) && (!q || chiave(m.codice + ' ' + m.descrizione).includes(q)));
+  ui._storicoVisti = tutti;
   tutti.sort((a, b) => (b.data_ora || '').localeCompare(a.data_ora || '') || b.id - a.id);
   const mostra = tutti.slice(0, ui.quantiStorico);
   const chip = (k, t) => `<button type="button" class="chip" data-a="tipo-storico" data-tipo="${k}" aria-pressed="${ui.tipoStorico === k}">${t}</button>`;
@@ -387,27 +404,123 @@ function storico() {
   <h1>Storico</h1>
   <label class="cerca">${ico.cerca}<span class="nascosto">Cerca nello storico</span><input id="cerca-st" type="search" placeholder="Codice o descrizione" value="${esc(ui.cercaStorico)}" data-input="cerca-storico" autocomplete="off"></label>
   <div class="chips">${chip('tutti', 'Tutto')}${chip('zip', 'Scarichi ZIP')}${chip('rif', 'Rifornimenti')}${chip('mag', 'Magazzino')}${chip('corr', 'Correzioni')}${chip('imp', 'Storico importato')}</div>
-  <div class="tenue">${num(tutti.length)} movimenti</div>
+  <div class="campo"><label for="st-mese">Mese</label><select id="st-mese" data-a-cambio="st-mese"><option value="">Tutti i mesi</option>${[...new Set(g.s.movimenti.map((m) => (m.data_ora || '').slice(0, 7)))].filter(Boolean).sort().reverse().map((m) => `<option value="${m}" ${ui.meseStorico === m ? 'selected' : ''}>${new Date(m + '-15').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</option>`).join('')}</select></div>
+  <div class="riga-titolo" style="align-items:center"><span class="tenue">${num(tutti.length)} movimenti</span><span class="affianca" style="flex:0 0 auto"><button type="button" class="btn vuoto piccolo" data-a="esporta-storico">Esporta</button>${ui.meseStorico ? '<button type="button" class="btn pericolo piccolo" data-a="cancella-mese">Cancella il mese</button>' : ''}</span></div>
   ${html || '<div class="vuoto-msg">Nessun movimento.</div>'}
   ${tutti.length > mostra.length ? '<button type="button" class="btn vuoto" data-a="altri-storico">Mostra altri</button>' : ''}`;
 }
 
 function altro() {
   const voce = (pag, titolo, sotto) => `<button type="button" class="voce" data-a="pagina" data-pagina="${pag}"><span class="corpo"><b>${titolo}</b><small>${sotto}</small></span>${ico.freccia}</button>`;
+  const attesa = g.controlliInAttesa().length;
+  const conMag = Object.values(g.s.prodotti).filter((p) => p.magazzino > 0).length;
   return `
   <h1>Altro</h1>
+  <h2>Ogni giorno</h2>
   <div class="lista">
-    ${voce('controllo', 'Controllo sul posto', g.controlliInAttesa().length ? `${g.controlliInAttesa().length} in attesa dello ZIP` : 'Segna i pezzi mancanti al distributore')}
-    ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
+    ${voce('controllo', 'Controllo sul posto', attesa ? `${attesa} in attesa dello ZIP` : 'Segna i pezzi mancanti al distributore')}
     ${voce('prelievi', 'Prelievi della settimana', `${num(g.prelevatiSettimana())} pezzi questa settimana, articolo per articolo`)}
-    ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti, con ricerca e filtri`)}
-    ${voce('abbinamenti', 'Abbinamenti', `${g.s.abbinamenti.length} descrizioni del PDF collegate ai codici AS400`)}
+    ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
+    ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
   </div>
+  <h2>Magazzino e inventario</h2>
+  <div class="lista">
+    ${voce('magazzino', 'Magazzino', `${conMag} articoli con pezzi di riserva · carica pezzi nuovi`)}
+    ${voce('inventario', 'Inventario', 'Conta e correggi · foglio PDF · scorte minime')}
+  </div>
+  <h2>ZIP</h2>
+  <div class="lista">
+    ${voce('zipimportati', 'ZIP importati', `${g.s.zip.filter((z) => !z.eliminato && !z.storico).length} ZIP · vedi o annulla`)}
+    ${voce('storicoimporta', 'Importa storico', 'ZIP vecchi solo per statistiche e scorte')}
+  </div>
+  <h2>Impostazioni</h2>
   <div class="lista">
     ${voce('impostazioni', 'Google Drive', drive.collegato ? `Collegato · cartella ${esc(g.s.impostazioni.drive_cartella_nome || '—')}` : 'Non collegato')}
-    ${voce('backup', 'Backup e ZIP a mano', drive.collegato ? 'Backup automatico su Drive attivo' : 'Scarica o ripristina i dati')}
+    ${voce('abbinamenti', 'Abbinamenti', `${g.s.abbinamenti.length} descrizioni del PDF collegate ai codici AS400`)}
+    ${voce('ignorate', 'Descrizioni ignorate', `${g.s.ignorate.length} descrizioni che non conto`)}
+    ${voce('backup', 'Backup e ripristino', drive.collegato ? 'Automatico su Drive · copie nel telefono · file' : 'Copie nel telefono · file')}
+    ${voce('info', 'Informazioni', `Versione ${VERSIONE}`)}
   </div>
   <div class="tenue" style="text-align:center;padding:10px">Distributore web ${VERSIONE} · AC</div>`;
+}
+
+function magazzino() {
+  const el = g.elenco().filter((p) => p.magazzino > 0).sort((a, b) => b.magazzino - a.magazzino);
+  const tot = el.reduce((t, p) => t + p.magazzino, 0);
+  const codici = Object.keys(g.s.prodotti).sort();
+  const ultimi = g.s.movimenti.filter((m) => ['DAL_MAGAZZINO', 'ECCESSO_MAGAZZINO', 'CORREZIONE_MAGAZZINO', 'REINTEGRO_MAGAZZINO'].includes(m.tipo)).sort((a, b) => b.data_ora.localeCompare(a.data_ora) || b.id - a.id).slice(0, 15);
+  return `<h1>Magazzino</h1>
+  <div class="tenue">I pezzi di riserva. Quando il distributore scende sotto il carico completo li sposto da soli; quando riporti il rifornimento quelli in più rientrano qui.</div>
+  <div class="numeri"><div><span>In magazzino</span><strong style="color:var(--rosa)">${num(tot)}</strong><span>pezzi</span></div><div><span>Articoli</span><strong>${el.length}</strong><span>con riserva</span></div><div><span>Distributore</span><strong>${num(g.elenco().reduce((t, p) => t + p.quantita, 0))}</strong><span>pezzi</span></div></div>
+  <div class="carta"><b>Carica pezzi nuovi in magazzino</b><small class="tenue">Quando arrivano pezzi da mettere di riserva.</small>
+    <div class="campo"><label for="mag-art">Articolo</label><select id="mag-art"><option value="">Scegli l'articolo…</option>${codici.map((k) => `<option value="${esc(k)}">${esc(k)} – ${esc(g.prodotto(k).descrizione)}</option>`).join('')}</select></div>
+    <div class="affianca"><div class="campo"><label for="mag-q">Pezzi</label><input id="mag-q" type="number" inputmode="numeric" min="1" value="1"></div><button type="button" class="btn secondario" data-a="mag-carica" style="align-self:flex-end">Carica</button></div></div>
+  <h2>Cosa c'è in magazzino</h2>
+  <div class="lista">${el.map((p) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="taglia">${esc(p.descrizione)}</small><small>distributore ${num(p.quantita)}${p.carico_completo != null ? ' / ' + num(p.carico_completo) : ''} · totale ${num(p.disponibile)}</small></span><b style="font-size:20px">${num(p.magazzino)}</b></button>`).join('') || '<div class="vuoto-msg">Magazzino vuoto</div>'}</div>
+  <h2>Ultimi passaggi</h2>
+  <div class="lista">${ultimi.map((m) => `<button type="button" class="mov" data-a="articolo" data-codice="${esc(m.codice)}" style="background:none;border:0;width:100%;text-align:left"><span class="corpo"><b>${esc(m.codice)} · ${esc(TIPI[m.tipo] || m.tipo)}</b><small class="tenue">${isoIta(m.data_ora.slice(0, 10))} ${m.data_ora.slice(11, 16)} · ${esc(m.note || '')}</small></span></button>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`;
+}
+
+function inventario() {
+  const el = g.elenco();
+  const conti = ui.inventario;
+  const cambiati = Object.keys(conti).length;
+  return `<h1>Inventario</h1>
+  <div class="carta"><b>Foglio d'inventario</b><small class="tenue">PDF A4 in bianco e nero con tutti gli articoli, le giacenze attuali, il barcode e lo spazio per scrivere i conteggi.</small>
+    <button type="button" class="btn secondario" data-a="pdf-inventario">${ico.mail} Crea il foglio e mandalo</button></div>
+  <div class="carta"><b>Conta e correggi</b><small class="tenue">Scrivi solo quello che hai contato diverso. Applico tutto insieme e finisce nello storico.</small></div>
+  <div class="lista">${el.map((p) => `<div class="inv"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small></span>
+    <label class="inv-c"><span>Distr. ${num(p.quantita)}</span><input type="number" inputmode="numeric" placeholder="${p.quantita}" value="${esc(conti[p.codice]?.distributore ?? '')}" data-inv="${esc(p.codice)}" data-campo="distributore" aria-label="Contati nel distributore ${esc(p.codice)}"></label>
+    <label class="inv-c"><span>Mag. ${num(p.magazzino)}</span><input type="number" inputmode="numeric" placeholder="${p.magazzino}" value="${esc(conti[p.codice]?.magazzino ?? '')}" data-inv="${esc(p.codice)}" data-campo="magazzino" aria-label="Contati in magazzino ${esc(p.codice)}"></label></div>`).join('')}</div>
+  <button type="button" class="btn" data-a="inv-applica" ${cambiati ? '' : 'disabled'}>Applica i conteggi${cambiati ? ` (${cambiati} articoli)` : ''}</button>
+  <h2>Scorte minime</h2>
+  <div class="carta"><small class="tenue">Come nel programma: una settimana di consumo medio degli ultimi 30 giorni. Si aggiornano da sole ogni 7 giorni${g.s.scorte_calcolate_il ? ` (ultima volta il ${isoIta(g.s.scorte_calcolate_il)})` : ''}.</small>
+    <button type="button" class="btn vuoto piccolo" data-a="ricalcola-scorte">Ricalcola adesso</button></div>
+  <h2>Azzera</h2>
+  <div class="carta"><small class="tenue">Porta a zero distributore e magazzino di tutti gli articoli (prima faccio un backup). Articoli, abbinamenti e storico restano.</small>
+    <button type="button" class="btn pericolo piccolo" data-a="azzera">Azzera tutte le giacenze</button></div>`;
+}
+
+function zipimportati() {
+  const el = g.s.zip.filter((z) => !z.storico).slice().reverse();
+  return `<h1>ZIP importati</h1><div class="tenue">Tocca uno ZIP per vederlo riga per riga. Uno ZIP non ancora riportato si può annullare: i pezzi tornano nel distributore, poi lo puoi reimportare.</div>
+  <div class="lista">${el.map((z) => `<div class="voce"><button type="button" class="corpo" data-a="zip" data-nome="${esc(z.nome)}" style="background:none;border:0;text-align:left;padding:0">
+      <b class="taglia" style="${z.eliminato ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(z.nome)}</b>
+      <small>${z.dal ? 'prelievi del ' + isoIta(z.dal) : ''} · ${num(g.dettaglioZip(z.nome).pezzi)} pezzi · ${z.eliminato ? '<b style="color:var(--rosso)">annullato</b>' : z.rifornito ? 'riportato' : '<b style="color:var(--verde)">da riportare</b>'}${z.completo === false ? ' · <b style="color:var(--arancio)">da controllare</b>' : ''}</small></button>
+    ${!z.eliminato && !z.rifornito ? `<button type="button" class="btn vuoto piccolo" data-a="annulla-zip" data-nome="${esc(z.nome)}">Annulla</button>` : ''}</div>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>
+  <div class="carta"><b>Importa uno ZIP a mano</b><small class="tenue">Da File o da Google Drive, se l'automatico non l'ha preso.</small>
+    <label class="btn vuoto">Scegli ZIP<input type="file" accept=".zip,application/zip" multiple data-file="zip" class="nascosto"></label></div>`;
+}
+
+function storicoimporta() {
+  const st = g.s.zip.filter((z) => z.storico);
+  return `<h1>Importa storico</h1>
+  <div class="tenue">Gli ZIP vecchi servono solo per le statistiche, i grafici e le scorte minime: non toccano giacenze, rifornimento né calendario.</div>
+  <div class="carta"><b>Da Google Drive</b>
+    <div class="griglia2"><div class="campo"><label for="st-dal">Dal (prelievi)</label><input id="st-dal" type="date"></div><div class="campo"><label for="st-al">Al</label><input id="st-al" type="date"></div></div>
+    <button type="button" class="btn secondario" data-a="storico-drive" ${drive.token() ? '' : 'disabled'}>Importa dal Drive</button>
+    ${drive.token() ? '' : '<small class="tenue">Prima collega Google Drive.</small>'}
+    <div id="storico-stato" class="tenue"></div></div>
+  <div class="carta"><b>Da file</b><label class="btn vuoto">Scegli ZIP<input type="file" accept=".zip,application/zip" multiple data-file="storico" class="nascosto"></label></div>
+  <h2>Già nello storico (${st.length})</h2>
+  <div class="lista">${st.slice().reverse().slice(0, 40).map((z) => `<div class="voce"><span class="corpo"><b class="taglia">${esc(z.nome)}</b><small>prelievi del ${isoIta(z.dal)} · ${num(z.pezzi)} pezzi</small></span></div>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`;
+}
+
+function ignorate() {
+  return `<h1>Descrizioni ignorate</h1><div class="tenue">Le righe del PDF con queste descrizioni non le conto. Riabilitale se ti servono di nuovo.</div>
+  <div class="lista">${g.s.ignorate.map((k) => `<div class="voce"><span class="corpo"><b>${esc(k)}</b></span><button type="button" class="btn vuoto piccolo" data-a="riabilita" data-chiave="${esc(k)}">Riabilita</button></div>`).join('') || '<div class="vuoto-msg">Nessuna</div>'}</div>`;
+}
+
+function info() {
+  const z = g.s.zip.filter((x) => !x.eliminato);
+  return `<h1>Informazioni</h1>
+  <div class="lista">
+    ${[['Versione', `Distributore web ${VERSIONE}`], ['Articoli', Object.keys(g.s.prodotti).length], ['Movimenti nello storico', num(g.s.movimenti.length)], ['ZIP importati', `${z.filter((x) => !x.storico).length} (+ ${z.filter((x) => x.storico).length} nello storico)`],
+      ['Abbinamenti', g.s.abbinamenti.length], ['Ultimo salvataggio', g.s.aggiornato ? new Date(g.s.aggiornato).toLocaleString('it-IT') : '—'],
+      ['Google Drive', drive.collegato ? (drive.token() ? 'collegato, accesso valido' : 'collegato, accesso da rinnovare') : 'non collegato'], ['Indirizzo', location.origin + location.pathname],
+      ['Dati partiti da', g.s.esportato_da || '—']].map(([a, b]) => `<div class="voce"><span class="corpo"><small>${a}</small><b>${esc(String(b))}</b></span></div>`).join('')}
+  </div>
+  <small class="tenue">I dati stanno in questo dispositivo e, se Drive è collegato, nel file Distributore_dati.json del tuo Google Drive. Il programma della web app è pubblico, i dati no.</small>`;
 }
 
 function impostazioni() {
@@ -437,12 +550,15 @@ function abbinamenti() {
 }
 
 function backup() {
-  return `<h1>Backup e ZIP a mano</h1>
-  <div class="carta"><b>Backup</b><div class="tenue">${drive.collegato ? 'I dati si salvano da soli nel tuo Google Drive (Distributore_dati.json) a ogni modifica.' : 'Collega Google Drive per avere il backup automatico.'}</div>
+  const el = ui.backupElenco || [];
+  return `<h1>Backup e ripristino</h1>
+  <div class="carta"><b>Google Drive</b><small class="tenue">${drive.collegato ? 'A ogni modifica salvo i dati nel file Distributore_dati.json del tuo Drive. Se cambi telefono, colleghi Drive e li ritrovi.' : 'Collega Google Drive per avere il backup automatico.'}</small></div>
+  <div class="carta"><b>Copie nel telefono</b><small class="tenue">Le ultime 10: una al giorno e una prima di ogni operazione delicata (annullare, azzerare, inventario, ripristino).</small>
+    <div class="lista">${el.slice().reverse().map((b) => `<div class="voce"><span class="corpo"><b>${new Date(b.ora).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</b><small>${esc(b.motivo)}</small></span><button type="button" class="btn vuoto piccolo" data-a="ripristina-locale" data-chiave="${esc(b.chiave)}">Ripristina</button></div>`).join('') || '<div class="vuoto-msg">Ancora nessuna</div>'}</div>
+    <button type="button" class="btn vuoto piccolo" data-a="backup-ora">Fai una copia adesso</button></div>
+  <div class="carta"><b>File</b><small class="tenue">Scarica un file con tutti i dati, o ripristinane uno.</small>
     <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="backup">Scarica backup</button>
-      <label class="btn vuoto piccolo">Ripristina<input type="file" accept=".json,application/json" data-file="dati" class="nascosto"></label></div></div>
-  <div class="carta"><b>Importa uno ZIP a mano</b><div class="tenue">Se Drive non funziona, scegli lo ZIP da File (anche da Google Drive).</div>
-    <label class="btn vuoto">Scegli ZIP<input type="file" accept=".zip,application/zip" multiple data-file="zip" class="nascosto"></label></div>`;
+      <label class="btn vuoto piccolo">Ripristina<input type="file" accept=".json,application/json" data-file="dati" class="nascosto"></label></div></div>`;
 }
 
 // ------------------------------------------------------------------ fogli (dal basso)
@@ -465,10 +581,11 @@ function foglioArticolo(codice, modifica = false) {
       <form id="form-articolo" data-codice="${esc(codice)}" style="display:flex;flex-direction:column;gap:12px">
         ${campo('descrizione', 'Descrizione', p.descrizione, 'text')}
         <div class="griglia2">${campo('quantita', 'Nel distributore', p.quantita)}${campo('magazzino', 'In magazzino', p.magazzino)}
-        ${campo('carico_completo', 'Carico completo', p.carico_completo)}${campo('scorta_minima', 'Scorta minima', p.scorta_minima)}${campo('pezzi_spira', 'Pezzi per spira', p.pezzi_spira)}</div>
+        ${campo('carico_completo', 'Carico completo', p.carico_completo)}${campo('scorta_minima', 'Scorta minima', p.scorta_minima)}${campo('pezzi_spira', 'Pezzi per spira', p.pezzi_spira)}${campo('pezzi_blister', 'Pezzi per blister (vuoto = no)', p.in_blister ? p.pezzi_blister : '')}</div>
         <small class="tenue">Ogni modifica finisce nello storico. Se il distributore resta sotto il carico completo, i pezzi del magazzino ci vanno da soli.</small>
         <div class="affianca"><button type="button" class="btn vuoto" data-a="articolo" data-codice="${esc(codice)}">Annulla</button><button type="submit" class="btn">Salva</button></div>
-      </form>`);
+      </form>
+      <button type="button" class="btn pericolo piccolo" data-a="elimina-articolo" data-codice="${esc(codice)}">Elimina l'articolo</button>`);
     return;
   }
   const maxG = Math.max(1, ...st.giorni.map((x) => x.pezzi));
@@ -489,13 +606,14 @@ function foglioArticolo(codice, modifica = false) {
       <div>Con i prelievi delle ultime 4 settimane (<b>${num(st.pezzi_28)}</b> pezzi, ${st.media.toLocaleString('it-IT', { maximumFractionDigits: 1 })} al giorno) ti dura ${durata}.</div>
       ${sotto ? '<div style="color:var(--arancio);font-weight:700">Sotto la scorta minima: da riordinare.</div>' : ''}
       ${st.in_rifornimento ? `<div>Nel prossimo rifornimento: <b style="color:var(--rosa)">${st.in_rifornimento} pezzi</b>.</div>` : ''}
+      ${g.consiglio(codice) ? `<div style="color:var(--rosa);font-weight:600">${esc(g.consiglio(codice))}</div>` : ''}
       <small class="tenue">Ultimo prelievo ${st.ultimo_prelievo ? isoIta(st.ultimo_prelievo) : '—'} · ultimo rifornimento ${st.ultimo_rifornimento ? isoIta(st.ultimo_rifornimento.slice(0, 10)) : '—'}</small>
     </div>
     <h2>Prelievi degli ultimi 14 giorni</h2>
     <div class="grafico">${st.giorni.map((x) => `<div title="${isoIta(x.giorno)}: ${x.pezzi}"><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / maxG)}%"></span><span class="e">${Number(x.giorno.slice(8))}</span></div>`).join('')}</div>
     <h2>Per settimana</h2>
     <div class="grafico sett">${st.settimane.map((x) => `<div><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / maxS)}%"></span><span class="e">${isoIta(x.dal).slice(0, 5)}</span></div>`).join('')}</div>
-    <button type="button" class="btn secondario" data-a="modifica-articolo" data-codice="${esc(codice)}">Modifica quantità e dati</button>
+    <div class="affianca"><button type="button" class="btn secondario" data-a="modifica-articolo" data-codice="${esc(codice)}">Modifica</button><button type="button" class="btn vuoto" data-a="carica-mag" data-codice="${esc(codice)}">Carica in magazzino</button></div>
     <h2>Avanti e indietro: distributore e magazzino</h2>
     <div class="lista">${storia.map((m) => {
       const q = Number(m.quantita || 0);
@@ -623,6 +741,48 @@ async function creaPdf() {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+async function condividi(file, titolo) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: titolo }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function importaFileStorico(files) {
+  let pezzi = 0, n = 0, gia = 0;
+  for (const f of files) {
+    const r = g.importaStorico(await leggiZip(window.JSZip, pdfjs, new Uint8Array(await f.arrayBuffer()), f.name));
+    if (r.ok) { n++; pezzi += r.pezzi; } else if (r.gia) gia++;
+  }
+  if (n) g.ricalcolaScorte(true);
+  await salva(); disegna();
+  avviso(`Storico: ${n} ZIP, ${num(pezzi)} pezzi${gia ? ` · ${gia} già presenti` : ''}.`);
+}
+
+async function importaStoricoDrive() {
+  const dal = $('#st-dal').value, al = $('#st-al').value;
+  if (!dal || !al) { avviso('Scegli le date dei prelievi.', true); return; }
+  const stato = $('#storico-stato');
+  try {
+    stato.textContent = 'Cerco gli ZIP su Drive…';
+    const elenco = await drive.zipNellaCartella(g.s.impostazioni.drive_cartella_id);
+    // la data del file è il giorno dopo i prelievi
+    const da = elenco.map((f) => ({ ...f, data: piuGiorni(dataZipNome(f.name, f.modifiedTime), -1) }))
+      .filter((f) => f.data >= dal && f.data <= al && !g.s.zip.find((z) => z.nome === f.name)).sort((a, b) => a.data.localeCompare(b.data));
+    if (!da.length) { stato.textContent = 'Nessuno ZIP nuovo in quel periodo.'; return; }
+    let pezzi = 0;
+    for (const [i, f] of da.entries()) {
+      stato.textContent = `ZIP ${i + 1} di ${da.length}: ${f.name}…`;
+      const r = g.importaStorico(await leggiZip(window.JSZip, pdfjs, await drive.scarica(f.id), f.name));
+      if (r.ok) pezzi += r.pezzi;
+    }
+    g.ricalcolaScorte(true);
+    await salva(); avviso(`Storico: ${da.length} ZIP, ${num(pezzi)} pezzi.`); disegna();
+  } catch (e) { stato.textContent = e.message; }
+}
+
 function scaricaBackup() {
   const b = new Blob([JSON.stringify(g.s)], { type: 'application/json' });
   const f = new File([b], `Distributore_backup_${oggiIso()}.json`, { type: 'application/json' });
@@ -640,6 +800,28 @@ const azioni = {
   'articolo': (el) => foglioArticolo(el.dataset.codice),
   'modifica-articolo': (el) => foglioArticolo(el.dataset.codice, true),
   'giorno-zip': (el) => foglioGiorno(el.dataset.giorno),
+  'mag-carica': () => { const k = $('#mag-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.caricaInMagazzino(k, $('#mag-q').value), 'Caricato in magazzino.'); },
+  'carica-mag': (el) => { const q = prompt(`Quanti pezzi nuovi di ${el.dataset.codice} metti in magazzino?`, '1'); if (!q) return; cambia(() => g.caricaInMagazzino(el.dataset.codice, q), 'Caricato in magazzino.').then(() => foglioArticolo(el.dataset.codice)); },
+  'elimina-articolo': async (el) => { if (!confirm(`Elimino ${el.dataset.codice}? Spariscono anche i suoi abbinamenti. Lo storico resta.`)) return; await backupLocale(`prima di eliminare ${el.dataset.codice}`); cambia(() => g.eliminaArticolo(el.dataset.codice), 'Articolo eliminato.').then(chiudiFoglio); },
+  'pdf-inventario': async (el) => { el.disabled = true; try { const ora = new Date(); const b = await pdfInventario(g.elenco(), `${Object.keys(g.s.prodotti).length} articoli · giacenze al ${ora.toLocaleDateString('it-IT')} ${ora.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`); await condividi(new File([b], `Inventario_${isoIta(oggiIso()).replace(/\//g, '-')}.pdf`, { type: 'application/pdf' }), 'Inventario distributore'); } catch (e) { avviso('PDF non creato: ' + e.message, true); } el.disabled = false; },
+  'inv-applica': async () => { const n = Object.keys(ui.inventario).length; if (!confirm(`Applico i conteggi di ${n} articoli?`)) return; await backupLocale('prima dell\'inventario'); cambia(() => g.applicaInventario(ui.inventario), (k) => `Inventario applicato: ${k} correzioni.`).then(() => { ui.inventario = {}; disegna(); }); },
+  'ricalcola-scorte': () => cambia(() => g.ricalcolaScorte(true), (n) => `Scorte minime ricalcolate: ${n} articoli aggiornati.`),
+  'azzera': async () => { if (!confirm('Azzero distributore e magazzino di TUTTI gli articoli?')) return; if (!confirm('Sicuro? Prima faccio un backup nel telefono.')) return; await backupLocale('prima di azzerare le giacenze'); cambia(() => g.azzeraGiacenze(), 'Giacenze azzerate.'); },
+  'annulla-zip': async (el) => { if (!confirm(`Annullo ${el.dataset.nome}? I suoi pezzi tornano nel distributore e spariscono dal rifornimento.`)) return; await backupLocale(`prima di annullare ${el.dataset.nome}`); cambia(() => g.annullaZip(el.dataset.nome), (r) => `ZIP annullato: ${r.pezzi} pezzi rimessi.`); },
+  'annulla-rif': async () => { if (!confirm('Annullo l\'ultimo rifornimento? I pezzi riportati escono di nuovo e la lista torna com\'era.')) return; await backupLocale('prima di annullare il rifornimento'); cambia(() => g.annullaUltimoRifornimento(), 'Rifornimento annullato.'); },
+  'svuota-bozza': () => { if (confirm('Svuoto il rifornimento? Le giacenze non cambiano.')) cambia(() => g.svuotaBozza(), 'Rifornimento svuotato.'); },
+  'ripdf': async (el) => { const r = g.s.rifornimenti.find((x) => x.data_ora === el.dataset.ora); if (!r) return; const righe = r.righe.filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice)).map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione })); const byte = await pdfRifornimento(righe, `Rifornimento del ${isoIta(r.data_ora.slice(0, 10))} ${r.data_ora.slice(11, 16)}   ·   ${r.articoli} articoli   ·   ${r.pezzi} pezzi   ·   copia`); condividi(new File([byte], nomeFile(r.data_ora.slice(0, 10)), { type: 'application/pdf' }), 'Rifornimento distributore'); },
+  'riabilita': (el) => cambia(() => g.riabilitaDescrizione(el.dataset.chiave), 'Descrizione riabilitata.'),
+  'backup-ora': async () => { await backupLocale('copia a mano'); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia fatta.'); disegna(); },
+  'ripristina-locale': async (el) => { if (!confirm('Ripristino questa copia? I dati di adesso vengono sostituiti (prima ne salvo una copia).')) return; const dati = await archivio.leggi(el.dataset.chiave); if (!dati) { avviso('Copia non trovata.', true); return; } await backupLocale('prima del ripristino'); g = new Gestionale(dati); g.s.aggiornato = new Date().toISOString(); await salva(); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia ripristinata.'); disegna(); },
+  'esporta-storico': () => {
+    const righe = [['Data', 'Ora', 'Tipo', 'Codice', 'Descrizione', 'Quantità', 'Distributore prima', 'Distributore dopo', 'Origine', 'Note']]
+      .concat((ui._storicoVisti || []).map((m) => [isoIta((m.data_ora || '').slice(0, 10)), (m.data_ora || '').slice(11, 16), TIPI[m.tipo] || m.tipo, m.codice, m.descrizione, m.quantita, m.prima ?? '', m.dopo ?? '', m.origine || '', m.note || '']));
+    const csv = '﻿' + righe.map((r) => r.map((c) => { const t = String(c ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(';')).join('\r\n');
+    condividi(new File([csv], `Storico_${ui.meseStorico || 'tutto'}_${oggiIso()}.csv`, { type: 'text/csv' }), 'Storico distributore');
+  },
+  'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
+  'storico-drive': () => importaStoricoDrive(),
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
   'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
   'ctrl-aggiungi': () => {
@@ -657,7 +839,7 @@ const azioni = {
   'ctrl-modifica': (el) => { const d = el.dataset.data; ui.controllo = { data: d, righe: Object.fromEntries(g.s.controlli.filter((x) => x.data === d && x.stato === 'attesa').map((x) => [x.codice, x.mancanti])) }; disegna(); window.scrollTo(0, 0); },
   'ctrl-elimina': (el) => { if (confirm(`Elimino il controllo del ${isoIta(el.dataset.data)}? I pezzi tolti tornano nel distributore.`)) cambia(() => g.eliminaControllo(el.dataset.data), 'Controllo eliminato.'); },
   'vedi-sotto': () => { ui.scheda = 'articoli'; ui.filtro = 'sotto'; ui.pagina = ''; disegna(); },
-  'pagina': (el) => { ui.pagina = el.dataset.pagina; disegna(); window.scrollTo(0, 0); },
+  'pagina': async (el) => { ui.pagina = el.dataset.pagina; if (ui.pagina === 'backup') ui.backupElenco = await archivio.leggi('backup_elenco').catch(() => []); disegna(); window.scrollTo(0, 0); },
   'indietro': () => { ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
   'mese': (el) => { const [a, m] = ui.mese.split('-').map(Number); const d = new Date(a, m - 1 + Number(el.dataset.d), 1); ui.mese = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; disegna(); },
   'settimana': (el) => { ui.settimana = piuGiorni(ui.settimana || lunediDi(oggiIso()), Number(el.dataset.d)); disegna(); },
@@ -701,6 +883,15 @@ document.addEventListener('click', (e) => {
 });
 $('#velo').addEventListener('click', chiudiFoglio);
 document.addEventListener('input', (e) => {
+  if (e.target.dataset.inv) {
+    const c = e.target.dataset.inv, campo = e.target.dataset.campo, v = e.target.value;
+    const r = (ui.inventario[c] ||= {});
+    if (v === '') delete r[campo]; else r[campo] = v;
+    if (!Object.keys(r).length) delete ui.inventario[c];
+    const b = document.querySelector('[data-a="inv-applica"]');
+    if (b) { const n = Object.keys(ui.inventario).length; b.disabled = !n; b.textContent = `Applica i conteggi${n ? ` (${n} articoli)` : ''}`; }
+    return;
+  }
   const k = e.target.dataset.input;
   if (k === 'cerca') { ui.cerca = e.target.value; ui.focus = 'cerca-art'; disegna(); }
   if (k === 'cerca-storico') { ui.cercaStorico = e.target.value; ui.quantiStorico = 150; ui.focus = 'cerca-st'; disegna(); }
@@ -710,6 +901,8 @@ document.addEventListener('change', (e) => {
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
   if (t.dataset.aCambio === 'ctrl-data') { ui.controllo.data = t.value; }
+  if (t.dataset.aCambio === 'st-mese') { ui.meseStorico = t.value; ui.quantiStorico = 150; disegna(); }
+  if (t.dataset.file === 'storico' && t.files.length) importaFileStorico([...t.files]);
   if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value ? piuGiorni(t.value, 1) : ''; g.s.aggiornato = new Date().toISOString(); }, `Prelievi presi dal ${isoIta(t.value)}.`);
 });
 document.addEventListener('submit', (e) => {
@@ -717,6 +910,8 @@ document.addEventListener('submit', (e) => {
   const f = e.target;
   if (f.id === 'form-articolo') {
     const dati = Object.fromEntries(new FormData(f));
+    const pb = String(dati.pezzi_blister || '').trim(); delete dati.pezzi_blister;
+    const pr = g.prodotto(f.dataset.codice); if (pr) { pr.in_blister = !!(pb && Number(pb) > 0); pr.pezzi_blister = pr.in_blister ? Math.round(Number(pb)) : null; }
     cambia(() => g.modificaArticolo(f.dataset.codice, dati), 'Articolo salvato.').then(() => foglioArticolo(f.dataset.codice));
   }
   if (f.dataset.sospesa !== undefined) {
@@ -736,6 +931,11 @@ async function avvia() {
   if (!g) return;
   if (ritorno.startsWith('errore:') && !/interaction_required|login_required|consent_required/.test(ritorno)) avviso('Google: accesso non riuscito (' + ritorno.slice(7) + ').', true);
   if (ritorno.startsWith('errore:')) { ui.drive = { stato: 'accedi', msg: 'Tocca per aggiornare da Google Drive', nuovi: [] }; disegna(); return; }
+  try {
+    const el = (await archivio.leggi('backup_elenco')) || [];
+    if (!el.length || el[el.length - 1].ora.slice(0, 10) !== new Date().toISOString().slice(0, 10)) await backupLocale('copia del giorno');
+    if (g.ricalcolaScorte(false)) await salva();
+  } catch { /* niente */ }
   mostraRiepilogoSettimana();
   if (drive.clientId) sincronizza();
 }
