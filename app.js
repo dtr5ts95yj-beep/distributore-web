@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.1';
+const VERSIONE = '2.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -494,8 +494,8 @@ function prelievi() {
 }
 
 function periodoBozza() {
-  const ultimo = g.s.rifornimenti.length ? g.s.rifornimenti[g.s.rifornimenti.length - 1].data_ora : '';
-  const z = g.s.zip.filter((x) => x.dal && (!ultimo || x.importato_il > ultimo));
+  // solo gli ZIP del giro in corso: non ancora riportati, non annullati, non dello storico
+  const z = g.s.zip.filter((x) => x.dal && !x.rifornito && !x.eliminato && !x.storico);
   if (!z.length) return '';
   const dal = z.map((x) => x.dal).sort()[0], al = z.map((x) => x.al || x.dal).sort().pop();
   return dal === al ? `Prelievi del ${isoIta(dal)}` : `Prelievi dal ${isoIta(dal)} al ${isoIta(al)}`;
