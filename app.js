@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.3';
+const VERSIONE = '2.4';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -50,7 +50,8 @@ function distributorino(stato) {
   const spento = stato === 'manca' || stato === 'prima' || stato === 'ignorato', arancio = stato === 'controlla';
   const col = spento ? Array(6).fill('#3d3354') : arancio ? ['#ffb454', '#ffcf7a', '#ffb454', '#ffcf7a', '#ffb454', '#ffcf7a'] : ['#ff7fbf', '#ffd166', '#6ee7b7', '#7cc4ff', '#c79bff', '#6ee7b7'];
   const c1 = spento ? '#9a92ad' : '#ffffff', c2 = spento ? '#6f6787' : '#ddd5f0';
-  const led = spento ? '#ff6b81' : arancio ? '#ffb454' : '#6ee7b7';
+  const zero = stato === 'zero';
+  const led = spento ? '#ff6b81' : arancio ? '#ffb454' : zero ? '#7cc4ff' : '#6ee7b7';
   return `<svg class="dist" viewBox="0 0 40 52" aria-hidden="true"><defs>
     <linearGradient id="${id}c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>
     <linearGradient id="${id}v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2a60"/><stop offset="1" stop-color="#1c1233"/></linearGradient></defs>
@@ -60,7 +61,7 @@ function distributorino(stato) {
     ${col.map((c, i) => `<rect x="${8.5 + (i % 3) * 5.8}" y="${14.5 + Math.floor(i / 3) * 8}" width="3.8" height="5" rx="1.2" fill="${c}"/>`).join('')}
     <path d="M6 13h20v4H6z" fill="#fff" opacity=".07"/>
     <rect x="29" y="13" width="6" height="2.6" rx="1.3" fill="#2a1d45"/><circle cx="32" cy="20.5" r="2" fill="${led}"/><rect x="30.6" y="25" width="2.8" height="9" rx="1.4" fill="#2a1d45" opacity=".35"/>
-    <rect x="7" y="40" width="26" height="6" rx="2.5" fill="#2a1d45"/>${spento ? '' : '<rect x="16.5" y="41.3" width="7" height="3.4" rx="1" fill="#ffd166"/>'}</svg>`;
+    <rect x="7" y="40" width="26" height="6" rx="2.5" fill="#2a1d45"/>${spento || zero ? '' : '<rect x="16.5" y="41.3" width="7" height="3.4" rx="1" fill="#ffd166"/>'}</svg>`;
 }
 
 const ico = {
@@ -261,9 +262,10 @@ function strisciaZip() {
     <div class="zip-sommario"><strong>${num(pezziTot)}</strong><span>pezzi in ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}<small>dal ${isoIta(inizio).slice(0, 5)} · ${ultimo ? `ultimo rifornimento ${isoIta(ultimo).slice(0, 5)}` : 'ultimo rifornimento col programma'}</small></span></div>
     ${giorni.length ? `<div class="striscia">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
-      return `<button type="button" class="tile ${x.stato}${x.giorno === ieri ? ' ieri' : ''}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
+      const zero = x.zip.length && !pezzi && x.stato === 'ok';
+      return `<button type="button" class="tile ${x.stato}${zero ? ' zero' : ''}${x.giorno === ieri ? ' ieri' : ''}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
         <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]}</span><b class="nr">${Number(x.giorno.slice(8))}</b>
-        ${distributorino(x.stato)}<span class="pz">${x.zip.length ? num(pezzi) : x.stato === 'manca' ? 'manca' : '—'}</span></button>`;
+        ${distributorino(zero ? 'zero' : x.stato)}<span class="pz">${zero ? 'vuoto' : x.zip.length ? num(pezzi) : x.stato === 'manca' ? 'manca' : '—'}</span></button>`;
     }).join('')}</div>` : '<small class="tenue">Il rifornimento ha coperto tutti gli ZIP: domani compare il primo giorno nuovo.</small>'}
   </section>`;
 }
