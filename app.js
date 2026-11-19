@@ -146,6 +146,37 @@ async function sincronizza(manuale = false) {
 // ------------------------------------------------------------------ schermate
 setInterval(() => { const o = document.getElementById('orologio'); if (o) o.textContent = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }, 20000);
 
+// ---------- colori: Giorno = rosa e viola, Notte = coppia scelta; Automatico cambia da solo alle 7 e alle 19
+const COLORI_NOTTE = [['grafite', 'Grafite e azzurro', '#5ac8fa', '#6e7f99'], ['verdeblu', 'Verde e blu', '#34d399', '#0a84ff'], ['arancioblu', 'Arancio e blu notte', '#ff9f0a', '#3b82f6'], ['smeraldo', 'Smeraldo e oro', '#10b981', '#f5b301'], ['indaco', 'Indaco e lime', '#818cf8', '#a3e635']];
+const pref = (k, d) => { try { return localStorage.getItem('pref_' + k) || d; } catch { return d; } };
+function eNotte() { const m = pref('modo', 'auto'); if (m !== 'auto') return m === 'notte'; const h = new Date().getHours(); return h < Number(pref('ora_giorno', '7')) || h >= Number(pref('ora_notte', '19')); }
+function applicaColori() {
+  const notte = eNotte(), coppia = COLORI_NOTTE.some(([k]) => k === pref('colori', 'grafite')) ? pref('colori', 'grafite') : 'grafite';
+  const r = document.documentElement;
+  if (notte) r.setAttribute('data-colori', coppia); else r.removeAttribute('data-colori');
+  const fondo = getComputedStyle(r).getPropertyValue('--fondo').trim();
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', fondo || '#140b26');
+}
+applicaColori();
+setInterval(applicaColori, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) applicaColori(); });
+
+function aspetto() {
+  const modo = pref('modo', 'auto'), col = pref('colori', 'grafite');
+  const seg = (v, t) => `<button type="button" data-a="pref-modo" data-v="${v}" aria-pressed="${modo === v}">${t}</button>`;
+  return `<h1>Aspetto e colori</h1>
+  <div class="tenue">Di giorno l'app è rosa e viola. Di sera passa alla modalità notte, più scura, con i colori che scegli qui sotto.</div>
+  <div class="carta"><b>Quando usare la notte</b><div class="segmenti">${seg('auto', 'Automatico')}${seg('giorno', 'Sempre giorno')}${seg('notte', 'Sempre notte')}</div>
+    ${modo === 'auto' ? `<div class="griglia2"><div class="campo"><label for="ora-g">Giorno dalle</label><select id="ora-g" data-a-cambio="ora-giorno">${[5, 6, 7, 8, 9].map((h) => `<option value="${h}" ${pref('ora_giorno', '7') == h ? 'selected' : ''}>${h}:00</option>`).join('')}</select></div>
+      <div class="campo"><label for="ora-n">Notte dalle</label><select id="ora-n" data-a-cambio="ora-notte">${[17, 18, 19, 20, 21, 22].map((h) => `<option value="${h}" ${pref('ora_notte', '19') == h ? 'selected' : ''}>${h}:00</option>`).join('')}</select></div></div>
+      <small class="tenue">Adesso è ${eNotte() ? '<b>notte</b>' : '<b>giorno</b>'}.</small>` : ''}</div>
+  <h2>Giorno</h2>
+  <div class="colori-scelta"><button type="button" aria-pressed="${!eNotte()}" data-a="pref-modo" data-v="giorno"><span class="campione"><i style="background:#ff6fb5"></i><i style="background:#b44dff"></i></span><b>Rosa e viola</b></button></div>
+  <h2>Colori della notte</h2>
+  <div class="colori-scelta">${COLORI_NOTTE.map(([k, t, c1, c2]) => `<button type="button" data-a="pref-colori" data-v="${k}" aria-pressed="${col === k}"><span class="campione"><i style="background:${c1}"></i><i style="background:${c2}"></i></span><b>${t}</b></button>`).join('')}</div>
+  <small class="tenue">Toccando un colore della notte lo vedi subito.</small>`;
+}
+
 function chiudiSplash() {
   const sp = $('#splash'); if (!sp) return;
   const resta = Math.max(0, 1900 - performance.now());
@@ -166,7 +197,7 @@ function disegna() {
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, magazzino, inventario, zipimportati, storicoimporta, ignorate, info };
+  const pagine = { aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, magazzino, inventario, zipimportati, storicoimporta, ignorate, info };
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
@@ -317,7 +348,7 @@ function oggi() {
   <header class="eroe">
     <div class="eroe-testa"><div><div class="sopra">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]} · <span id="orologio">${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span></div><h1>${saluto}, Andrea</h1></div>${distributorino(giro.mancanti.length ? 'manca' : 'ok')}</div>
     <div class="anello">
-      <svg viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="gr-anello" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6fb5"/><stop offset=".55" stop-color="#b44dff"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs>
+      <svg viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="gr-anello" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--a1)"/><stop offset=".55" style="stop-color:var(--a2)"/><stop offset="1" style="stop-color:var(--a3)"/></linearGradient></defs>
         <circle class="base" cx="80" cy="80" r="70"/><circle class="val" cx="80" cy="80" r="70" style="stroke-dasharray:${CM.toFixed(1)};--fine:${(CM * (1 - quota)).toFixed(1)};stroke-dashoffset:${(CM * (1 - quota)).toFixed(1)}"/></svg>
       <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>livello scorte</span><small>${num(liv.coperti)} di ${num(liv.minimo)} pezzi minimi</small>`
         : `<strong>${zipOk}/${giro.giorni.length}</strong><span>ZIP del giro</span>`}</div>
@@ -524,6 +555,7 @@ function altro() {
     ${voce('impostazioni', 'Google Drive', drive.collegato ? `Collegato · cartella ${esc(g.s.impostazioni.drive_cartella_nome || '—')}` : 'Non collegato')}
     ${voce('abbinamenti', 'Abbinamenti', `${g.s.abbinamenti.length} descrizioni del PDF collegate ai codici AS400`)}
     ${voce('ignorate', 'Descrizioni ignorate', `${g.s.ignorate.length} descrizioni che non conto`)}
+    ${voce('aspetto', 'Aspetto e colori', eNotte() ? `Notte · ${COLORI_NOTTE.find(([k]) => k === pref('colori', 'grafite'))?.[1] || ''}` : 'Giorno · rosa e viola')}
     ${voce('backup', 'Backup e ripristino', drive.collegato ? 'Automatico su Drive · copie nel telefono · file' : 'Copie nel telefono · file')}
     ${voce('info', 'Informazioni', `Versione ${VERSIONE}`)}
   </div>
@@ -930,6 +962,9 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'pref-modo': (el) => { try { localStorage.setItem('pref_modo', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
+  'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();
+    if (!eNotte()) { document.documentElement.setAttribute('data-colori', el.dataset.v); avviso('Anteprima della notte: adesso è giorno, torna rosa fra 3 secondi.'); clearTimeout(applicaColori.t); applicaColori.t = setTimeout(applicaColori, 3000); } },
   'pagina-diretta': (el) => { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; disegna(); window.scrollTo(0, 0); },
   'zip-vecchi': (el) => { ui.zipVecchi = !!el.dataset.v; disegna(); },
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
@@ -1008,6 +1043,7 @@ document.addEventListener('change', (e) => {
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
   if (t.dataset.aCambio === 'ctrl-data') { ui.controllo.data = t.value; }
+  if (t.dataset.aCambio === 'ora-giorno' || t.dataset.aCambio === 'ora-notte') { try { localStorage.setItem(t.dataset.aCambio === 'ora-giorno' ? 'pref_ora_giorno' : 'pref_ora_notte', t.value); } catch { /* niente */ } applicaColori(); disegna(); }
   if (t.dataset.aCambio === 'st-mese') { ui.meseStorico = t.value; ui.quantiStorico = 150; disegna(); }
   if (t.dataset.file === 'storico' && t.files.length) importaFileStorico([...t.files]);
   if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value ? piuGiorni(t.value, 1) : ''; g.s.aggiornato = new Date().toISOString(); }, `Prelievi presi dal ${isoIta(t.value)}.`);
