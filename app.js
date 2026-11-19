@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.1';
+const VERSIONE = '4.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -231,6 +231,7 @@ function disegna() {
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
   aggiornaNumerino();
+  document.querySelectorAll('.striscia.scorre').forEach((el) => { el.scrollLeft = el.scrollWidth; });
   if (document.body.classList.contains('intro') || !disegna.fatto) { disegna.fatto = true; contaNumeri(); }
   if (ui.focus) { const el = document.getElementById(ui.focus); if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); } ui.focus = null; }
 }
@@ -280,7 +281,7 @@ function strisciaZip() {
   return `<section class="wid largo zipwid">
     <div class="wid-riga"><span class="wid-tit">ZIP dall'ultimo rifornimento</span><span class="pill ${stato[0]}">${stato[1]}</span></div>
     <div class="zip-sommario"><strong>${num(pezziTot)}</strong><span>pezzi in ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}<small>dal ${isoIta(inizio).slice(0, 5)} · ${ultimo ? `ultimo rifornimento ${isoIta(ultimo).slice(0, 5)}` : 'ultimo rifornimento col programma'}</small></span></div>
-    ${giorni.length ? `<div class="striscia">${giorni.map((x) => {
+    ${giorni.length ? `<div class="striscia ${giorni.length > 7 ? 'scorre' : ''}" style="--n:${Math.min(7, giorni.length)}">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
       const zero = x.zip.length && !pezzi && x.stato === 'ok';
       return `<button type="button" class="tile ${x.stato}${zero ? ' zero' : ''}${x.giorno === ieri ? ' ieri' : ''}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
