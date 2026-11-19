@@ -1,5 +1,5 @@
 // Tiene la web app nel telefono: si apre anche senza rete. Google Drive passa sempre dalla rete.
-const VERSIONE = 'distributore-3.4';
+const VERSIONE = 'distributore-3.6';
 const FILE = ['./', 'index.html', 'app.css', 'app.js', 'logica.js', 'drive.js', 'stampa.js', 'lettore.js', 'manifest.webmanifest',
   'lib/jszip.min.js', 'lib/pdf-lib.min.js', 'lib/pdf.min.mjs', 'lib/pdf.worker.min.mjs',
   'icone/icona-192.png', 'icone/icona-512.png', 'icone/apple-touch-icon.png'];
@@ -11,7 +11,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // prima la rete (così gli aggiornamenti arrivano subito), se manca la rete la copia salvata
-  e.respondWith(fetch(e.request).then((r) => {
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then((r) => {
     if (r.ok) { const copia = r.clone(); caches.open(VERSIONE).then((c) => c.put(e.request, copia)); }
     return r;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))));

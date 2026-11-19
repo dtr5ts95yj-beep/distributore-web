@@ -369,3 +369,9 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
 .voce.menu { gap: 14px; } .voce.menu .corpo small { font-size: 12.5px; }
 .m-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .15), 0 3px 8px rgba(0, 0, 0, .25); }
 .m-ico svg { width: 21px; height: 21px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.rif-testa { display: flex; align-items: center; gap: 8px; }
+.mag-chip { font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 99px; background: rgba(255, 255, 255, .08); color: var(--tenue); white-space: nowrap; }
+.mag-chip.si { background: color-mix(in srgb, var(--a3) 35%, transparent); color: #fff; }
+.mag-chip.tanti { background: rgba(255, 180, 84, .2); color: var(--arancio); box-shadow: inset 0 0 0 1px rgba(255, 180, 84, .5); }
+.rif-testa button.mag-chip { border: 0; cursor: pointer; }

@@ -895,6 +895,21 @@ export class Gestionale {
     return n;
   }
 
+  /** Al posto di portare pezzi nuovi si usano quelli del magazzino: vanno nel distributore e il rifornimento cala. */
+  usaMagazzino(codice, n) {
+    const p = this.s.prodotti[codice], b = this.s.bozza.find((x) => x.codice === codice);
+    n = Math.round(Number(n));
+    if (!p) throw new Error('Articolo non trovato.');
+    if (!(n > 0)) throw new Error('Scrivi quanti pezzi prendi.');
+    if (n > (p.magazzino || 0)) throw new Error(`In magazzino ce ne sono solo ${p.magazzino || 0}.`);
+    const prima = p.quantita;
+    p.magazzino -= n; p.quantita += n;
+    this._mov('DAL_MAGAZZINO', codice, p.descrizione, n, prima, p.quantita, 'Rifornimento dal magazzino', `${n} pezzi presi dal magazzino al posto del rifornimento (in magazzino ne restano ${p.magazzino})`);
+    if (b) { b.quantita = Math.max(0, b.quantita - n); b.proposta = Math.max(0, b.proposta - n); if (!b.quantita && !b.proposta) this.s.bozza = this.s.bozza.filter((x) => x !== b); }
+    this._tocca();
+    return n;
+  }
+
   impostaQuantitaBozza(codice, q) {
     const b = this.s.bozza.find((x) => x.codice === codice);
     if (!b) return;

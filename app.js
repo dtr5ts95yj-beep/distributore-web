@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '3.4';
+const VERSIONE = '3.6';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -515,9 +515,9 @@ function preparaRifornimento() {
   <div><h1>Rifornimento</h1><div class="sopra">${per ? esc(per) + ' · ' : ''}${attive.length} articoli · <b style="color:var(--rosa)">${num(pezzi)} pezzi</b></div></div>
   ${oltre || spira ? `<div class="carta ${spira ? 'avviso-carta' : ''}">${oltre ? `<div class="tenue">Per <b style="color:var(--testo)">${oltre}</b> ${oltre === 1 ? 'articolo' : 'articoli'} il distributore è già pieno: i pezzi riportati vanno a ripristinare il magazzino.</div>` : ''}${spira ? `<div><b>${spira}</b> ${spira === 1 ? 'quantità non è' : 'quantità non sono'} multipl${spira === 1 ? 'a' : 'e'} dei pezzi per spira.</div>` : ''}</div>` : ''}
   ${righe.length ? `<div class="lista">${righe.map((b) => `
-    <div class="rif ${b.quantita ? '' : 'spento'}"><button type="button" class="corpo" data-a="articolo" data-codice="${esc(b.codice)}" style="background:none;border:0;text-align:left;padding:4px 0">
-        <b>${esc(b.codice)}</b><small class="tenue taglia">${esc(b.descrizione)}</small>
-        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo}</b> / ${b.carico}` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></button>
+    <div class="rif ${b.quantita ? '' : 'spento'}"><div class="corpo" role="button" tabindex="0" data-a="articolo" data-codice="${esc(b.codice)}" style="text-align:left;padding:4px 0;cursor:pointer">
+        <span class="rif-testa"><b>${esc(b.codice)}</b>${(() => { const m = g.prodotto(b.codice)?.magazzino || 0; return m ? `<button type="button" class="mag-chip ${m >= b.quantita && b.quantita ? 'tanti' : 'si'}" data-a="usa-mag" data-codice="${esc(b.codice)}" aria-label="Usa i pezzi del magazzino di ${esc(b.codice)}">mag. ${num(m)} ›</button>` : '<span class="mag-chip no">mag. 0</span>'; })()}</span><small class="tenue taglia">${esc(b.descrizione)}</small>
+        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo}</b> / ${b.carico}` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
       <button type="button" class="passo" aria-label="${passoSpira(b.codice)} in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
       <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
       <button type="button" class="passo piu" aria-label="${passoSpira(b.codice)} in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}
@@ -1217,6 +1217,16 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'usa-mag': (el) => {
+    const k = el.dataset.codice, p = g.prodotto(k), b = g.s.bozza.find((x) => x.codice === k), m = p.magazzino || 0, prop = Math.min(m, b ? b.quantita : 0) || m;
+    apriFoglio(`<h1>Usa il magazzino</h1><div class="tenue"><b style="color:var(--testo)">${esc(k)}</b> · ${esc(p.descrizione)}</div>
+      <div class="tre"><div><span>In magazzino</span><strong>${num(m)}</strong></div><div><span>Da riportare</span><strong>${num(b ? b.quantita : 0)}</strong></div><div><span>Distributore</span><strong>${num(p.quantita)}</strong></div></div>
+      <div class="tenue">Quanti pezzi prendi dal magazzino invece di portarli nuovi? Passano nel distributore e il rifornimento cala di altrettanti.</div>
+      <div class="lp-q"><span>Pezzi</span><button type="button" class="pm" data-x="-1">−</button><input id="usa-n" type="number" inputmode="numeric" min="1" max="${m}" value="${prop}"><button type="button" class="pm piu" data-x="1">+</button></div>
+      <div class="affianca"><button type="button" class="btn vuoto" data-a="chiudi">Annulla</button><button type="button" class="btn" data-a="usa-mag-ok" data-codice="${esc(k)}">Prendi dal magazzino</button></div>`);
+    document.querySelectorAll('#foglio .pm').forEach((x) => x.onclick = () => { const i = $('#usa-n'); i.value = Math.max(1, Math.min(m, (Number(i.value) || 0) + Number(x.dataset.x))); });
+  },
+  'usa-mag-ok': (el) => cambia(() => g.usaMagazzino(el.dataset.codice, $('#usa-n').value), (n) => `${n} pezzi presi dal magazzino: il rifornimento cala di ${n}.`).then((n) => { if (n) chiudiFoglio(); }),
   'pref-tema': (el) => { try { localStorage.setItem('pref_tema', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'ctrl-barcode': () => modalitaBarcode(),
   'abb-nuovo': () => foglioAbbinamento(),
