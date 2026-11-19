@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.9';
+const VERSIONE = '2.0';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -144,6 +144,23 @@ async function sincronizza(manuale = false) {
 }
 
 // ------------------------------------------------------------------ schermate
+setInterval(() => { const o = document.getElementById('orologio'); if (o) o.textContent = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }, 20000);
+
+function chiudiSplash() {
+  const sp = $('#splash'); if (!sp) return;
+  const resta = Math.max(0, 1900 - performance.now());
+  setTimeout(() => { sp.classList.add('via'); document.body.classList.add('intro'); setTimeout(() => { sp.remove(); document.body.classList.remove('intro'); }, 1600); }, resta);
+}
+
+// i numeri grandi contano da zero all'apertura
+function contaNumeri() {
+  document.querySelectorAll('[data-conta]').forEach((el) => {
+    const fine = Number(el.dataset.conta), suf = el.textContent.includes('%') ? '%' : ''; if (!(fine > 0)) return;
+    const t0 = performance.now(); const passo = (t) => { const k = Math.min(1, (t - t0) / 900); el.textContent = num(Math.round(fine * (1 - Math.pow(1 - k, 3)))) + suf; if (k < 1) requestAnimationFrame(passo); };
+    requestAnimationFrame(passo);
+  });
+}
+
 function disegna() {
   document.querySelectorAll('#schede button').forEach((b) => b.setAttribute('aria-current', b.dataset.scheda === ui.scheda ? 'page' : 'false'));
   $('#schede').hidden = !g;
@@ -153,6 +170,7 @@ function disegna() {
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
+  if (document.body.classList.contains('intro') || !disegna.fatto) { disegna.fatto = true; contaNumeri(); }
   if (ui.focus) { const el = document.getElementById(ui.focus); if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); } ui.focus = null; }
 }
 
@@ -269,36 +287,68 @@ function riepilogo() {
   ${r.sotto_scorta ? `<div class="carta">Adesso ${r.sotto_scorta} ${r.sotto_scorta === 1 ? 'articolo è' : 'articoli sono'} sotto scorta. <button type="button" class="btn vuoto piccolo" data-a="vedi-sotto">Vedi</button></div>` : ''}`;
 }
 
+function livelloMagazzino() {
+  let minimo = 0, coperti = 0;
+  for (const p of g.elenco()) if (p.scorta_minima > 0) { minimo += p.scorta_minima; coperti += Math.max(0, Math.min(p.disponibile, p.scorta_minima)); }
+  return { minimo, coperti, pct: minimo ? Math.round(coperti * 100 / minimo) : null };
+}
+
 function oggi() {
   const giro = g.prelieviGiro();
   const d = new Date();
   const el = g.elenco();
-  const sotto = el.filter((p) => p.sotto || p.negativo);
-  const mancanti = g.giorniMancanti();
+  const riordino = el.filter((p) => p.sotto || p.negativo || (p.carico_completo != null && p.quantita < p.carico_completo && !(p.magazzino > 0)));
   const bozza = g.s.bozza.filter((b) => b.quantita > 0);
-  const pezziBozza = bozza.reduce((s, b) => s + b.quantita, 0);
+  const pezziBozza = bozza.reduce((t, b) => t + b.quantita, 0);
   const sosp = g.s.sospese.length;
+  const ora = d.getHours();
+  const saluto = ora < 13 ? 'Buongiorno' : ora < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  const liv = livelloMagazzino();
+  const zipOk = giro.giorni.length - giro.mancanti.length;
+  const quota = liv.pct != null ? liv.pct / 100 : (giro.giorni.length ? zipOk / giro.giorni.length : 0);
+  const CM = 2 * Math.PI * 70;
+  // ultimo ZIP
+  const zu = g.s.zip.filter((z) => !z.eliminato && !z.storico && z.dal).sort((a, b) => (a.al || a.dal).localeCompare(b.al || b.dal) || (a.importato_il || '').localeCompare(b.importato_il || '')).pop();
+  const zd = zu ? g.dettaglioZip(zu.nome) : null;
+  // settimana
+  const lun = lunediDi(oggiIso()), cal = g.calendario(lun, piuGiorni(lun, 6)), manc = new Set(giro.mancanti);
+  const top = giro.righe.slice(0, 5), maxTop = Math.max(1, ...top.map((r) => r.totale));
   return `
-  <div class="riga-titolo"><div><div class="sopra">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}</div><h1>Ciao Andrea</h1></div><span class="sigla">AC</span></div>
+  <header class="eroe">
+    <div class="eroe-testa"><div><div class="sopra">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]} · <span id="orologio">${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span></div><h1>${saluto}, Andrea</h1></div>${distributorino(giro.mancanti.length ? 'manca' : 'ok')}</div>
+    <div class="anello">
+      <svg viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="gr-anello" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6fb5"/><stop offset=".55" stop-color="#b44dff"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs>
+        <circle class="base" cx="80" cy="80" r="70"/><circle class="val" cx="80" cy="80" r="70" style="stroke-dasharray:${CM.toFixed(1)};--fine:${(CM * (1 - quota)).toFixed(1)};stroke-dashoffset:${(CM * (1 - quota)).toFixed(1)}"/></svg>
+      <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>livello scorte</span><small>${num(liv.coperti)} di ${num(liv.minimo)} pezzi minimi</small>`
+        : `<strong>${zipOk}/${giro.giorni.length}</strong><span>ZIP del giro</span>`}</div>
+    </div>
+    <button type="button" class="stampa" data-scheda="rifornimento"><b data-conta="${pezziBozza}">${num(pezziBozza)}</b><span>pezzi da riportare<small>${bozza.length} articoli · apri il rifornimento</small></span>${ico.freccia}</button>
+  </header>
   ${cartaDrive()}
   ${listaCaricamento()}
-  ${strisciaZip()}
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
-  <div class="numeri">
-    <div><span>Prelevati</span><strong style="color:var(--rosa)">${num(giro.totale)}</strong><span>dal ${isoIta(giro.inizio).slice(0, 5)}</span></div>
-    <div><span>Sotto scorta</span><strong style="color:${sotto.length ? 'var(--arancio)' : 'var(--verde)'}">${sotto.length}</strong><span>articoli</span></div>
-    <div><span>Senza ZIP</span><strong style="color:${giro.mancanti.length ? 'var(--rosso)' : 'var(--verde)'}">${giro.mancanti.length}</strong><span>giorni</span></div>
+  <div class="widget-griglia">
+    <button type="button" class="wid" ${zu ? `data-a="zip" data-nome="${esc(zu.nome)}"` : ''}>
+      <span class="wid-tit">Ultimo ZIP</span>
+      ${zu ? `<strong>${isoIta(zu.al || zu.dal).slice(0, 5)}</strong><span class="wid-sotto">${GIORNI[new Date((zu.al || zu.dal) + 'T12:00').getDay()]} · ${num(zd.pezzi)} pezzi</span>
+        <span class="wid-stato ${zu.completo === false ? 'arancio' : 'verde'}">${zu.completo === false ? '! da controllare' : '✓ completo'}</span>` : '<span class="wid-sotto">nessuno</span>'}
+    </button>
+    <button type="button" class="wid" data-a="vedi-riordino">
+      <span class="wid-tit">Da riordinare</span>
+      <strong style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</strong>
+      <span class="wid-sotto">${riordino.length ? riordino.slice(0, 2).map((p) => esc(p.codice)).join(' · ') + (riordino.length > 2 ? '…' : '') : 'tutto a posto'}</span>
+    </button>
+    <div class="wid largo">
+      <div class="wid-riga"><span class="wid-tit">Più prelevati</span><button type="button" class="link" data-a="pagina-diretta" data-pagina="prelievi">dal ${isoIta(giro.inizio).slice(0, 5)} · ${num(giro.totale)} pz ›</button></div>
+      ${top.length ? `<div class="top">${top.map((r, k) => `<button type="button" class="top-r" data-a="articolo" data-codice="${esc(r.codice)}"><span class="pos">${k + 1}</span><span class="top-n"><b>${esc(r.codice)}</b><small>${esc(r.descrizione)}</small></span><span class="top-b"><i style="--w:${Math.round(r.totale * 100 / maxTop)}%"></i></span><b class="top-q">${num(r.totale)}</b></button>`).join('')}</div>` : '<span class="wid-sotto">Nessun prelievo dall\'ultimo rifornimento</span>'}
+    </div>
+    <button type="button" class="wid largo" data-scheda="calendario">
+      <div class="wid-riga"><span class="wid-tit">Questa settimana</span><span class="tenue" style="font-size:12px">${zipOk} ZIP · ${giro.mancanti.length ? `<b style="color:var(--rosso)">${giro.mancanti.length} mancanti</b>` : 'nessuno mancante'}</span></div>
+      <div class="sett">${[...Array(7)].map((_, k) => { const g1 = piuGiorni(lun, k), x = cal[g1]; const cl = g1 > oggiIso() ? 'futuro' : x ? (x.stato === 'riportato' ? 'rossa' : 'verde') : manc.has(g1) ? 'manca' : ''; return `<span class="sg-c ${cl} ${g1 === oggiIso() ? 'oggi' : ''}"><small>${['Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa', 'Do'][k]}</small><b>${Number(g1.slice(8))}</b><i>${x ? num(x.pezzi) : ''}</i></span>`; }).join('')}</div>
+    </button>
   </div>
-  <div class="carta">
-    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">Rifornimento pronto</b></div>
-    <div style="display:flex;gap:24px"><div><div style="font-size:28px;font-weight:800">${bozza.length}</div><div class="tenue">articoli</div></div><div><div style="font-size:28px;font-weight:800">${num(pezziBozza)}</div><div class="tenue">pezzi da riportare</div></div></div>
-    <button type="button" class="btn secondario" data-scheda="rifornimento">Vedi e crea il PDF</button>
-  </div>
-  ${sotto.length ? `<h2>Da guardare</h2><div class="lista">${sotto.slice(0, 6).map((p) => `
-    <button type="button" class="voce" data-a="articolo" data-codice="${esc(p.codice)}"><span class="punto" style="${p.negativo ? 'background:var(--rosso)' : ''}"></span>
-      <span class="corpo"><b>${esc(p.codice)}</b><small class="taglia">${esc(p.descrizione)}</small></span>
-      <small style="color:${p.negativo ? 'var(--rosso)' : 'var(--arancio)'};font-weight:700">${num(p.quantita)}${p.carico_completo != null ? ' / ' + num(p.carico_completo) : ''}</small></button>`).join('')}</div>` : ''}
+  ${strisciaZip()}
   `;
 }
 
@@ -306,13 +356,13 @@ function articoli() {
   const giroArt = Object.fromEntries(g.prelieviGiro().righe.map((r) => [r.codice, r.totale]));
   const q = chiave(ui.cerca);
   const tutti = g.elenco();
-  const filtri = { tutti: () => true, sotto: (p) => p.sotto || p.negativo, magazzino: (p) => p.magazzino > 0 };
+  const filtri = { tutti: () => true, sotto: (p) => p.sotto || p.negativo, magazzino: (p) => p.magazzino > 0, riordino: (p) => p.sotto || p.negativo || (p.carico_completo != null && p.quantita < p.carico_completo && !(p.magazzino > 0)) };
   const el = tutti.filter(filtri[ui.filtro]).filter((p) => !q || chiave(p.codice + ' ' + p.descrizione).includes(q));
   const chip = (k, t, n) => `<button type="button" class="chip" data-a="filtro" data-filtro="${k}" aria-pressed="${ui.filtro === k}">${t} ${n}</button>`;
   return `
   <div class="riga-titolo"><h1>Articoli</h1><button type="button" class="btn vuoto piccolo" data-a="nuovo-articolo">+ Nuovo</button></div>
   <label class="cerca">${ico.cerca}<span class="nascosto">Cerca articolo</span><input id="cerca-art" type="search" placeholder="Codice o descrizione" value="${esc(ui.cerca)}" data-input="cerca" autocomplete="off"></label>
-  <div class="chips">${chip('tutti', 'Tutti', tutti.length)}${chip('sotto', 'Sotto scorta', tutti.filter(filtri.sotto).length)}${chip('magazzino', 'In magazzino', tutti.filter(filtri.magazzino).length)}</div>
+  <div class="chips">${ui.filtro === 'riordino' ? chip('riordino', 'Da riordinare', tutti.filter(filtri.riordino).length) : ''}${chip('tutti', 'Tutti', tutti.length)}${chip('sotto', 'Sotto scorta', tutti.filter(filtri.sotto).length)}${chip('magazzino', 'In magazzino', tutti.filter(filtri.magazzino).length)}</div>
   ${el.length ? el.map((p) => {
     const c = p.carico_completo;
     const pieno = c ? Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c))) : 0;
@@ -880,6 +930,7 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'pagina-diretta': (el) => { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; disegna(); window.scrollTo(0, 0); },
   'zip-vecchi': (el) => { ui.zipVecchi = !!el.dataset.v; disegna(); },
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
   'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
@@ -892,6 +943,7 @@ const azioni = {
   },
   'ctrl-modifica': (el) => { const d = el.dataset.data; ui.controllo = { data: d, righe: Object.fromEntries(g.s.controlli.filter((x) => x.data === d && x.stato === 'attesa').map((x) => [x.codice, x.mancanti])) }; disegna(); window.scrollTo(0, 0); },
   'ctrl-elimina': (el) => { if (confirm(`Elimino il controllo del ${isoIta(el.dataset.data)}? I pezzi tolti tornano nel distributore.`)) cambia(() => g.eliminaControllo(el.dataset.data), 'Controllo eliminato.'); },
+  'vedi-riordino': () => { ui.scheda = 'articoli'; ui.filtro = 'riordino'; ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
   'vedi-sotto': () => { ui.scheda = 'articoli'; ui.filtro = 'sotto'; ui.pagina = ''; disegna(); },
   'pagina': async (el) => { ui.pagina = el.dataset.pagina; if (ui.pagina === 'backup') ui.backupElenco = await archivio.leggi('backup_elenco').catch(() => []); disegna(); window.scrollTo(0, 0); },
   'indietro': () => { ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
@@ -991,6 +1043,7 @@ async function avvia() {
     if (!el.length || el[el.length - 1].ora.slice(0, 10) !== new Date().toISOString().slice(0, 10)) await backupLocale('copia del giorno');
     if (g.ricalcolaScorte(false)) await salva();
   } catch { /* niente */ }
+  chiudiSplash();
   mostraRiepilogoSettimana();
   if (drive.clientId) sincronizza();
 }
