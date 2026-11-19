@@ -152,7 +152,9 @@ export class Gestionale {
 
   _id() { return (this.s.movimenti.reduce((m, x) => Math.max(m, x.id || 0), 0) || 0) + 1; }
   _mov(tipo, codice, descrizione, quantita, prima, dopo, origine, note = '', ora = adessoIso()) {
-    this.s.movimenti.push({ id: this._id(), data_ora: ora, tipo, codice, descrizione, quantita, prima, dopo, origine, note });
+    const p = this.s.prodotti[codice];
+    this.s.movimenti.push({ id: this._id(), data_ora: ora, tipo, codice, descrizione, quantita, prima, dopo, origine, note,
+      mag: p ? (p.magazzino || 0) : null });          // magazzino DOPO il movimento
   }
   _tocca() { this.s.aggiornato = new Date().toISOString(); }
 
@@ -181,6 +183,96 @@ export class Gestionale {
       .filter((x) => x.punti > 0).sort((a, b) => b.punti - a.punti || a.codice.localeCompare(b.codice)).slice(0, quanti).map((x) => x.codice);
   }
 
+  /** Gli ultimi n giorni di prelievo (fino a ieri) con il loro ZIP: per la vista "a colpo d'occhio". */
+  giorniZip(n = 7, oggi = oggiIso()) {
+    const out = [];
+    for (let i = n; i >= 1; i--) {
+      const g = piuGiorni(oggi, -i);
+      const zips = this.s.zip.filter((z) => !z.nascosto && z.dal && g >= z.dal && g <= (z.al || z.dal));
+      const stato = zips.length ? (zips.some((z) => z.completo === false) ? 'controlla' : 'ok')
+        : this.s.giorni_ignorati.includes(g) ? 'ignorato'
+        : (this.s.impostazioni.zip_partenza && g < this.s.impostazioni.zip_partenza) ? 'prima' : 'manca';
+      out.push({ giorno: g, stato, zip: zips });
+    }
+    return out;
+  }
+
+  /** Righe di uno ZIP: quelle salvate all'importazione, o ricostruite dai movimenti per gli ZIP del programma. */
+  dettaglioZip(nome) {
+    const z = this.s.zip.find((x) => x.nome === nome);
+    if (!z) return null;
+    if (z.dettaglio) return { ...z, ricostruito: false };
+    const righe = this.s.movimenti.filter((m) => m.origine === nome && (m.tipo === 'SCARICO_ZIP' || m.tipo === 'CONTROLLO_POSTO'))
+      .map((m) => {
+        const pdf = /PDF: (.*) \(cod\. PDF ([^)]*)\)/.exec(m.note || '');
+        return { cp: pdf ? pdf[2] : '', d: pdf ? pdf[1] : m.descrizione, q: -m.quantita, cod: m.codice, esito: m.tipo === 'CONTROLLO_POSTO' ? 'controllo sul posto' : 'scaricata' };
+      });
+    const pezzi = righe.filter((r) => r.esito === 'scaricata').reduce((t, r) => t + r.q, 0);
+    return { ...z, dettaglio: righe, pezzi, ricostruito: true };
+  }
+
+  /** Storia di un articolo, dal più recente: distributore e magazzino prima/dopo di ogni movimento.
+   *  Il magazzino dei movimenti vecchi si ricostruisce all'indietro partendo da quello di oggi. */
+  storiaArticolo(codice, quanti = 60) {
+    const p = this.s.prodotti[codice];
+    if (!p) return [];
+    const movs = this.s.movimenti.filter((m) => m.codice === codice)
+      .sort((a, b) => (b.data_ora || '').localeCompare(a.data_ora || '') || b.id - a.id);
+    let mag = p.magazzino || 0, noto = true;
+    const out = [];
+    for (const m of movs) {
+      let dMag = 0, sa = true;
+      const nota = m.note || '';
+      const corr = /magazzino (-?\d+) → (-?\d+)/i.exec(nota);
+      if (m.tipo === 'ECCESSO_MAGAZZINO') dMag = -Number(m.quantita || 0);
+      else if (m.tipo === 'DAL_MAGAZZINO') dMag = -Number(m.quantita || 0);
+      else if (m.tipo === 'REINTEGRO_MAGAZZINO') dMag = Number(m.quantita || 0);
+      else if (corr) dMag = Number(corr[2]) - Number(corr[1]);
+      else if (/magazzino/i.test(nota) && (m.tipo === 'MODIFICA_MANUALE' || m.tipo === 'CORREZIONE_MAGAZZINO')) sa = false;
+      if (m.mag != null) { mag = m.mag; noto = true; }
+      const dopo = noto ? mag : null;
+      const prima = noto && sa ? mag - dMag : null;
+      // il distributore: per gli scarichi e i rifornimenti prima/dopo sono quelli del distributore
+      const totale = m.tipo === 'CORREZIONE_MAGAZZINO' && !m.mag;
+      out.push({ ...m, distr_prima: totale ? null : m.prima, distr_dopo: totale ? null : m.dopo, mag_prima: prima, mag_dopo: dopo, d_mag: sa ? dMag : null });
+      if (!sa) noto = false; else mag = mag - dMag;
+      if (out.length >= quanti) break;
+    }
+    return out;
+  }
+
+  /** Numeri per la scheda di un articolo: prelievi degli ultimi giorni e settimane, media e durata. */
+  statistiche(codice, oggi = oggiIso()) {
+    const p = this.s.prodotti[codice];
+    if (!p) return null;
+    const giorni = [];
+    for (let i = 13; i >= 0; i--) { const g = piuGiorni(oggi, -i); giorni.push({ giorno: g, pezzi: (this.s.consumi[g] || {})[codice] || 0 }); }
+    const d = new Date(oggi + 'T12:00:00');
+    const lun = piuGiorni(oggi, -((d.getDay() + 6) % 7));
+    const settimane = [];
+    for (let i = 7; i >= 0; i--) {
+      const da = piuGiorni(lun, -7 * i), a = piuGiorni(da, 6);
+      let t = 0;
+      for (const [g, c] of Object.entries(this.s.consumi)) if (g >= da && g <= a) t += c[codice] || 0;
+      settimane.push({ dal: da, al: a, pezzi: t });
+    }
+    // media sui 28 giorni prima di oggi
+    let t28 = 0;
+    for (let i = 1; i <= 28; i++) t28 += (this.s.consumi[piuGiorni(oggi, -i)] || {})[codice] || 0;
+    const media = t28 / 28;
+    const disp = (p.quantita || 0) + (p.magazzino || 0);
+    let ultimo = '';
+    for (const [g, c] of Object.entries(this.s.consumi)) if (c[codice] && g > ultimo) ultimo = g;
+    const rif = this.s.movimenti.filter((m) => m.codice === codice && m.tipo === 'RIFORNIMENTO').sort((a, b) => b.data_ora.localeCompare(a.data_ora))[0];
+    return {
+      giorni, settimane, media, disponibile: disp,
+      durata: media > 0 ? Math.floor(disp / media) : null,
+      ultimo_prelievo: ultimo, ultimo_rifornimento: rif ? rif.data_ora : '', pezzi_28: t28,
+      abbinamenti: this.s.abbinamenti.filter((a) => a.codice === codice),
+      in_rifornimento: (this.s.bozza.find((b) => b.codice === codice) || {}).quantita || 0,
+    };
+  }
+
   zipGiaImportato(nome, sha) { return this.s.zip.find((z) => (sha && z.sha === sha) || z.nome === nome); }
 
   /** Applica uno ZIP letto con leggiZip. Ritorna un riepilogo. */
@@ -188,29 +280,37 @@ export class Gestionale {
     const ora = adessoIso();
     if (letto.errori.length && !letto.righe.length) return { ok: false, errori: letto.errori };
     if (this.zipGiaImportato(letto.nome, letto.sha)) return { ok: false, gia: true, errori: [] };
-    let pezzi = 0, sospese = 0;
+    let pezzi = 0, sospese = 0, ignorati = 0, pezziSospesi = 0;
+    const dettaglio = [];
     for (const r of letto.righe) {
       const k = chiave(r.descrizione);
-      if (this.s.ignorate.includes(k)) continue;
+      const riga = { cp: r.codice, d: r.descrizione, q: r.quantita, cod: '', esito: '' };
+      dettaglio.push(riga);
+      if (this.s.ignorate.includes(k)) { riga.esito = 'ignorata'; ignorati += r.quantita; continue; }
       const codice = this.trovaCodice(r.descrizione, r.codice);
       if (!codice) {
         this.s.sospese.push({ chiave: k, descrizione_pdf: r.descrizione, codice_pdf: r.codice, quantita: r.quantita, nome_zip: letto.nome, dal: letto.dal, al: letto.al });
-        sospese++; continue;
+        riga.esito = 'da abbinare'; sospese++; pezziSospesi += r.quantita; continue;
       }
-      this._scarica(codice, r.quantita, letto, ora);
+      riga.cod = codice; riga.esito = 'scaricata';
+      this._scarica(codice, r.quantita, letto, ora, r);
       pezzi += r.quantita;
     }
-    this.s.zip.push({ nome: letto.nome, sha: letto.sha, dal: letto.dal, al: letto.al, importato_il: ora, righe: letto.righe.length, pezzi, drive: driveId });
+    const pezziPdf = letto.righe.reduce((t, r) => t + r.quantita, 0);
+    const completo = !letto.errori.length && pezziPdf === pezzi + pezziSospesi + ignorati;
+    this.s.zip.push({ nome: letto.nome, sha: letto.sha, dal: letto.dal, al: letto.al, importato_il: ora, righe: letto.righe.length,
+      pezzi, pezzi_pdf: pezziPdf, sospesi: pezziSospesi, ignorati, errori: letto.errori, completo, dettaglio, drive: driveId });
     this.riempiDaMagazzino('Dopo lo scarico degli ZIP');
     this._tocca();
-    return { ok: true, pezzi, righe: letto.righe.length, sospese, errori: letto.errori };
+    return { ok: true, pezzi, pezzi_pdf: pezziPdf, righe: letto.righe.length, sospese, completo, errori: letto.errori };
   }
 
-  _scarica(codice, q, letto, ora) {
+  _scarica(codice, q, letto, ora, riga = null) {
     const p = this.s.prodotti[codice];
     const prima = p.quantita;
     p.quantita -= q;
-    this._mov('SCARICO_ZIP', codice, p.descrizione, -q, prima, p.quantita, letto.nome, letto.dal ? `Prelievi del ${isoIta(letto.dal)}` : '', ora);
+    const nota = [letto.dal ? `Periodo ${isoIta(letto.dal)}` : '', riga ? `PDF: ${riga.descrizione} (cod. PDF ${riga.codice})` : ''].filter(Boolean).join(' · ');
+    this._mov('SCARICO_ZIP', codice, p.descrizione, -q, prima, p.quantita, letto.nome, nota, ora);
     const giorno = letto.dal || oggiIso();
     const c = (this.s.consumi[giorno] ||= {});
     c[codice] = (c[codice] || 0) + q;
@@ -228,7 +328,11 @@ export class Gestionale {
     let n = 0;
     this.s.sospese = this.s.sospese.filter((x) => {
       if (x.chiave !== sp.chiave) return true;
-      this._scarica(codice, x.quantita, { nome: x.nome_zip, dal: x.dal }, ora); n += x.quantita; return false;
+      this._scarica(codice, x.quantita, { nome: x.nome_zip, dal: x.dal }, ora, { descrizione: x.descrizione_pdf, codice: x.codice_pdf }); n += x.quantita;
+      const z = this.s.zip.find((zz) => zz.nome === x.nome_zip);
+      const r = z && z.dettaglio && z.dettaglio.find((rr) => rr.esito === 'da abbinare' && chiave(rr.d) === x.chiave);
+      if (r) { r.esito = 'scaricata'; r.cod = codice; z.pezzi = (z.pezzi || 0) + x.quantita; z.sospesi = Math.max(0, (z.sospesi || 0) - x.quantita); }
+      return false;
     });
     this.riempiDaMagazzino('Dopo un abbinamento');
     this._tocca();

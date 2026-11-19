@@ -4,7 +4,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.1';
+const VERSIONE = '1.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -73,7 +73,7 @@ async function sincronizza(manuale = false) {
     return;
   }
   const cartella = g.s.impostazioni.drive_cartella_id;
-  ui.drive = { stato: 'lavoro', msg: 'Controllo Google Drive…', nuovi: [] };
+  ui.drive = { stato: 'lavoro', msg: 'Controllo Google Drive…', sotto: `Cartella ${g.s.impostazioni.drive_cartella_nome || ''}`, nuovi: [], lista: [] };
   disegna();
   try {
     // 1) dati: se su Drive c'è una versione più nuova (es. dall'altro dispositivo) la prendo
@@ -87,17 +87,27 @@ async function sincronizza(manuale = false) {
     if (cartella) {
       const elenco = await drive.zipNellaCartella(cartella);
       const da = g.zipDaImportare(elenco);
+      ui.drive.lista = da.map((f) => ({ nome: f.name, stato: 'attesa', info: 'in coda' }));
+      if (da.length) { ui.drive.msg = `Trovati ${da.length} ZIP nuovi`; disegna(); }
       for (const [i, f] of da.entries()) {
-        ui.drive.msg = `Leggo ${f.name} (${i + 1} di ${da.length})…`; disegna();
-        const letto = await leggiZip(window.JSZip, pdfjs, await drive.scarica(f.id), f.name);
+        const voce = ui.drive.lista[i];
+        voce.stato = 'lavoro'; voce.info = 'scarico da Drive…'; ui.drive.msg = `ZIP ${i + 1} di ${da.length}`; disegna();
+        const dati = await drive.scarica(f.id);
+        voce.info = `leggo il PDF (${Math.round(dati.length / 1024)} KB)…`; disegna();
+        const letto = await leggiZip(window.JSZip, pdfjs, dati, f.name);
         const r = g.importaZip(letto, f.id);
         nuovi.push({ nome: f.name, ...r });
+        if (r.ok) {
+          voce.stato = r.completo ? 'ok' : 'controlla';
+          voce.info = `${r.righe} righe · ${num(r.pezzi_pdf)} pezzi nel PDF${r.sospese ? ` · ${r.sospese} da abbinare` : ''}${r.completo ? ' · tutto contato' : ''}`;
+        } else { voce.stato = r.gia ? 'ok' : 'errore'; voce.info = r.gia ? 'già importato' : r.errori.join(' '); }
+        await archivio.scrivi('stato', g.s); disegna();
       }
     }
     await archivio.scrivi('stato', g.s);
     if (nuovi.length || !remoti || (g.s.aggiornato || '') > (remoti.aggiornato || '')) await drive.salvaDati(g.s);
     const pezzi = nuovi.reduce((s, x) => s + (x.pezzi || 0), 0);
-    ui.drive = { stato: 'fatto', nuovi, ora: new Date(),
+    ui.drive = { stato: 'fatto', nuovi, lista: ui.drive.lista || [], ora: new Date(),
       msg: !cartella ? 'Scegli la cartella degli ZIP (Altro)' : nuovi.length ? `${nuovi.length} ZIP nuov${nuovi.length === 1 ? 'o' : 'i'} da Google Drive` : 'Nessuno ZIP nuovo',
       sotto: nuovi.length ? `${num(pezzi)} pezzi · importati alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : `Controllato alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` };
     const err = nuovi.filter((x) => !x.ok && !x.gia);
@@ -141,6 +151,32 @@ function cartaDrive() {
     <span style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><b>${esc(titolo)}</b><small class="tenue">${esc(sotto)}</small></span>${ico.freccia}</button>`;
 }
 
+const SIMBOLI = { ok: '✓', controlla: '!', manca: '✕', ignorato: '–', prima: '·', attesa: '…', lavoro: '↓', errore: '✕' };
+function listaCaricamento() {
+  const l = ui.drive.lista || [];
+  if (!l.length) return '';
+  return `<div class="lista caricamento">${l.map((v) => `<div class="voce"><span class="stato-z ${v.stato}">${v.stato === 'lavoro' ? `<span class="gira" style="display:grid">${ico.aggiorna}</span>` : SIMBOLI[v.stato] || ''}</span>
+    <span class="corpo"><b class="taglia">${esc(v.nome)}</b><small>${esc(v.info)}</small></span></div>`).join('')}</div>`;
+}
+
+function strisciaZip() {
+  const giorni = g.giorniZip(7);
+  const mancano = giorni.filter((x) => x.stato === 'manca').length;
+  const controlla = giorni.filter((x) => x.stato === 'controlla').length;
+  const frase = mancano ? `Manca${mancano === 1 ? '' : 'no'} ${mancano} ${mancano === 1 ? 'giorno' : 'giorni'}` : controlla ? 'Uno ZIP da controllare' : 'Tutti gli ZIP ci sono';
+  const SIGLE = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
+  return `<div class="carta">
+    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">ZIP degli ultimi 7 giorni</b><span class="tenue" style="color:${mancano ? 'var(--rosso)' : controlla ? 'var(--arancio)' : 'var(--verde)'};font-weight:700">${frase}</span></div>
+    <div class="striscia">${giorni.map((x) => {
+      const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
+      return `<button type="button" class="tile ${x.stato}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
+        <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]}</span><span class="nr">${Number(x.giorno.slice(8))}</span>
+        <span class="si">${SIMBOLI[x.stato]}</span><span class="pz">${x.zip.length ? num(pezzi) : ''}</span></button>`;
+    }).join('')}</div>
+    <small class="tenue">Tocca un giorno per vedere il suo ZIP riga per riga.</small>
+  </div>`;
+}
+
 function oggi() {
   const d = new Date();
   const el = g.elenco();
@@ -152,6 +188,8 @@ function oggi() {
   return `
   <div class="riga-titolo"><div><div class="sopra">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}</div><h1>Ciao Andrea</h1></div><span class="sigla">AC</span></div>
   ${cartaDrive()}
+  ${listaCaricamento()}
+  ${strisciaZip()}
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   <div class="numeri">
     <div><span>Prelevati</span><strong style="color:var(--rosa)">${num(g.prelevatiSettimana())}</strong><span>questa sett.</span></div>
@@ -167,9 +205,6 @@ function oggi() {
     <button type="button" class="voce" data-a="articolo" data-codice="${esc(p.codice)}"><span class="punto" style="${p.negativo ? 'background:var(--rosso)' : ''}"></span>
       <span class="corpo"><b>${esc(p.codice)}</b><small class="taglia">${esc(p.descrizione)}</small></span>
       <small style="color:${p.negativo ? 'var(--rosso)' : 'var(--arancio)'};font-weight:700">${num(p.quantita)}${p.carico_completo != null ? ' / ' + num(p.carico_completo) : ''}</small></button>`).join('')}</div>` : ''}
-  ${mancanti.length ? `<h2>Giorni senza ZIP</h2><div class="lista">${mancanti.slice(-7).reverse().map((gg) => `
-    <div class="voce"><span class="punto" style="background:var(--rosso)"></span><span class="corpo"><b>${GIORNI[new Date(gg + 'T12:00').getDay()]} ${isoIta(gg)}</b><small>Nessuno ZIP con i prelievi di questo giorno</small></span>
-    <button type="button" class="btn vuoto piccolo" data-a="ignora-giorno" data-giorno="${gg}">Ignora</button></div>`).join('')}</div>` : ''}
   `;
 }
 
@@ -191,7 +226,7 @@ function articoli() {
       <span class="testa"><span style="display:flex;flex-direction:column;min-width:0"><b style="font-size:16px">${esc(p.codice)}</b><small class="tenue">${esc(p.descrizione)}</small></span>
       <span class="q">${num(p.quantita)}${c != null ? `<small> / ${num(c)}</small>` : ''}</span></span>
       ${c ? `<span class="barra"><div style="width:${pieno}%"></div></span>` : ''}
-      <span class="piede"><span>Magazzino <b>${num(p.magazzino)}</b>${p.scorta_minima != null ? ` · scorta min. <b>${num(p.scorta_minima)}</b>` : ''}</span><span>${ultimo}</span></span>
+      <span class="piede"><span>Magazzino <b>${num(p.magazzino)}</b> · Totale <b>${num(p.disponibile)}</b>${p.scorta_minima != null ? ` / min. ${num(p.scorta_minima)}` : ''}</span><span>${ultimo}</span></span>
     </button>`;
   }).join('') : '<div class="vuoto-msg">Nessun articolo.</div>'}`;
 }
@@ -296,21 +331,59 @@ function apriFoglio(html) {
 }
 function chiudiFoglio() { $('#foglio').hidden = true; $('#velo').hidden = true; $('#foglio').innerHTML = ''; }
 
-function foglioArticolo(codice) {
+function foglioArticolo(codice, modifica = false) {
   const p = g.prodotto(codice);
   if (!p) return;
-  const movs = g.s.movimenti.filter((m) => m.codice === codice).sort((a, b) => b.data_ora.localeCompare(a.data_ora) || b.id - a.id).slice(0, 12);
-  const campo = (id, et, v, tipo = 'number') => `<div class="campo"><label for="f-${id}">${et}</label><input id="f-${id}" name="${id}" type="${tipo}" inputmode="${tipo === 'number' ? 'numeric' : 'text'}" value="${esc(v ?? '')}"></div>`;
+  const st = g.statistiche(codice);
+  const disp = (p.quantita || 0) + (p.magazzino || 0);
+  const c = p.carico_completo;
+  const sotto = p.scorta_minima != null && disp <= p.scorta_minima;
+  if (modifica) {
+    const campo = (id, et, v, tipo = 'number') => `<div class="campo"><label for="f-${id}">${et}</label><input id="f-${id}" name="${id}" type="${tipo}" inputmode="${tipo === 'number' ? 'numeric' : 'text'}" value="${esc(v ?? '')}"></div>`;
+    apriFoglio(`<h1>Modifica ${esc(p.codice)}</h1>
+      <form id="form-articolo" data-codice="${esc(codice)}" style="display:flex;flex-direction:column;gap:12px">
+        ${campo('descrizione', 'Descrizione', p.descrizione, 'text')}
+        <div class="griglia2">${campo('quantita', 'Nel distributore', p.quantita)}${campo('magazzino', 'In magazzino', p.magazzino)}
+        ${campo('carico_completo', 'Carico completo', p.carico_completo)}${campo('scorta_minima', 'Scorta minima', p.scorta_minima)}${campo('pezzi_spira', 'Pezzi per spira', p.pezzi_spira)}</div>
+        <small class="tenue">Ogni modifica finisce nello storico. Se il distributore resta sotto il carico completo, i pezzi del magazzino ci vanno da soli.</small>
+        <div class="affianca"><button type="button" class="btn vuoto" data-a="articolo" data-codice="${esc(codice)}">Annulla</button><button type="submit" class="btn">Salva</button></div>
+      </form>`);
+    return;
+  }
+  const maxG = Math.max(1, ...st.giorni.map((x) => x.pezzi));
+  const maxS = Math.max(1, ...st.settimane.map((x) => x.pezzi));
+  const storia = g.storiaArticolo(codice, 40);
+  const durata = st.durata == null ? 'nessun prelievo nelle ultime 4 settimane'
+    : st.durata <= 3 ? `<b style="color:var(--rosso)">circa ${st.durata} giorni</b>` : st.durata <= 7 ? `<b style="color:var(--arancio)">circa ${st.durata} giorni</b>` : `circa <b>${st.durata} giorni</b>`;
+  const freccia = (a, b) => (a == null || b == null) ? (b ?? '—') : a === b ? `${b}` : `${a} → <b>${b}</b>`;
   apriFoglio(`
-    <h1>${esc(p.codice)}</h1>
-    <form id="form-articolo" data-codice="${esc(codice)}" style="display:flex;flex-direction:column;gap:12px">
-      ${campo('descrizione', 'Descrizione', p.descrizione, 'text')}
-      <div class="griglia2">${campo('quantita', 'Nel distributore', p.quantita)}${campo('magazzino', 'In magazzino', p.magazzino)}
-      ${campo('carico_completo', 'Carico completo', p.carico_completo)}${campo('scorta_minima', 'Scorta minima', p.scorta_minima)}${campo('pezzi_spira', 'Pezzi per spira', p.pezzi_spira)}</div>
-      <button type="submit" class="btn">Salva</button>
-    </form>
-    <h2>Ultimi movimenti</h2>
-    <div class="lista">${movs.map((m) => `<div class="mov"><span class="corpo"><b>${esc(TIPI[m.tipo] || m.tipo)}</b><small class="tenue">${isoIta(m.data_ora.slice(0, 10))} ${m.data_ora.slice(11, 16)}${m.note ? ' · ' + esc(m.note) : ''}</small></span><span class="qta ${m.quantita < 0 ? 'meno' : m.quantita > 0 ? 'piu-t' : ''}">${m.quantita > 0 ? '+' : ''}${m.quantita}</span></div>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`);
+    <div style="display:flex;flex-direction:column;gap:2px;padding-right:40px"><h1>${esc(p.codice)}</h1><span class="tenue" style="font-size:15px">${esc(p.descrizione)}</span></div>
+    <div class="tre">
+      <div><span>Distributore</span><strong class="${p.quantita < 0 ? 'rosso' : ''}">${num(p.quantita)}</strong><small>${c != null ? `su ${num(c)}` : 'carico ?'}</small></div>
+      <div><span>Magazzino</span><strong>${num(p.magazzino)}</strong><small>di riserva</small></div>
+      <div class="${sotto ? 'allarme' : ''}"><span>Totale</span><strong>${num(disp)}</strong><small>${p.scorta_minima != null ? `scorta min. ${num(p.scorta_minima)}` : 'scorta ?'}</small></div>
+    </div>
+    ${c ? `<div class="barra grande"><div style="width:${Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c)))}%"></div></div>` : ''}
+    <div class="carta">
+      <div>Con i prelievi delle ultime 4 settimane (<b>${num(st.pezzi_28)}</b> pezzi, ${st.media.toLocaleString('it-IT', { maximumFractionDigits: 1 })} al giorno) ti dura ${durata}.</div>
+      ${sotto ? '<div style="color:var(--arancio);font-weight:700">Sotto la scorta minima: da riordinare.</div>' : ''}
+      ${st.in_rifornimento ? `<div>Nel prossimo rifornimento: <b style="color:var(--rosa)">${st.in_rifornimento} pezzi</b>.</div>` : ''}
+      <small class="tenue">Ultimo prelievo ${st.ultimo_prelievo ? isoIta(st.ultimo_prelievo) : '—'} · ultimo rifornimento ${st.ultimo_rifornimento ? isoIta(st.ultimo_rifornimento.slice(0, 10)) : '—'}</small>
+    </div>
+    <h2>Prelievi degli ultimi 14 giorni</h2>
+    <div class="grafico">${st.giorni.map((x) => `<div title="${isoIta(x.giorno)}: ${x.pezzi}"><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / maxG)}%"></span><span class="e">${Number(x.giorno.slice(8))}</span></div>`).join('')}</div>
+    <h2>Per settimana</h2>
+    <div class="grafico sett">${st.settimane.map((x) => `<div><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / maxS)}%"></span><span class="e">${isoIta(x.dal).slice(0, 5)}</span></div>`).join('')}</div>
+    <button type="button" class="btn secondario" data-a="modifica-articolo" data-codice="${esc(codice)}">Modifica quantità e dati</button>
+    <h2>Avanti e indietro: distributore e magazzino</h2>
+    <div class="lista">${storia.map((m) => {
+      const q = Number(m.quantita || 0);
+      return `<div class="mov"><span class="corpo"><b>${esc(TIPI[m.tipo] || m.tipo)}</b>
+        <small class="tenue">${isoIta((m.data_ora || '').slice(0, 10))} ${(m.data_ora || '').slice(11, 16)}${m.note ? ' · ' + esc(m.note) : ''}</small>
+        <small>Distributore ${freccia(m.distr_prima, m.distr_dopo)} · Magazzino ${freccia(m.mag_prima, m.mag_dopo)}</small></span>
+        <span class="qta ${q < 0 ? 'meno' : q > 0 ? 'piu-t' : ''}">${q > 0 ? '+' : ''}${num(q)}</span></div>`;
+    }).join('') || '<div class="vuoto-msg">Nessun movimento</div>'}</div>
+    ${st.abbinamenti.length ? `<h2>Come si chiama nel PDF</h2><div class="lista">${st.abbinamenti.map((a) => `<div class="voce"><span class="corpo"><b>${esc(a.descrizione_pdf)}</b><small>Codice PDF ${esc(a.codice_pdf || '—')}</small></span></div>`).join('')}</div>` : ''}`);
 }
 
 function foglioDrive() {
@@ -329,7 +402,7 @@ function foglioDrive() {
         <div class="affianca"><button type="submit" class="btn piccolo">Abbina</button><button type="button" class="btn vuoto piccolo" data-a="ignora-riga" data-i="${i}">Ignora sempre</button></div>
         <small class="tenue">L'abbinamento vale anche per i prossimi ZIP.</small></form>`).join('')}` : ''}
     <h2>Ultimi ZIP</h2>
-    <div class="lista">${ultimi.map((z) => `<div class="voce"><span class="corpo"><b class="taglia">${esc(z.nome)}</b><small>${z.dal ? 'prelievi del ' + isoIta(z.dal) : ''}${z.pezzi != null ? ' · ' + num(z.pezzi) + ' pezzi' : ''} · importato il ${isoIta((z.importato_il || '').slice(0, 10))}</small></span></div>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`);
+    <div class="lista">${ultimi.map((z) => `<button type="button" class="voce" data-a="zip" data-nome="${esc(z.nome)}"><span class="corpo"><b class="taglia">${esc(z.nome)}</b><small>${z.dal ? 'prelievi del ' + isoIta(z.dal) : ''} · ${num(g.dettaglioZip(z.nome).pezzi)} pezzi · importato il ${isoIta((z.importato_il || '').slice(0, 10))}${z.completo === false ? ' · <b style="color:var(--arancio)">da controllare</b>' : z.completo ? ' · completo' : ''}</small></span>${ico.freccia}</button>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`);
 }
 
 function sceltaCodice(id, descrizionePdf, codici) {
@@ -340,6 +413,39 @@ function sceltaCodice(id, descrizionePdf, codici) {
     ${consigliati.length ? `<optgroup label="Più probabili">${consigliati.map(opz).join('')}</optgroup>` : ''}
     <optgroup label="Tutti gli articoli">${codici.map(opz).join('')}</optgroup>
   </select>`;
+}
+
+function foglioGiorno(giorno) {
+  const x = g.giorniZip(7).find((y) => y.giorno === giorno) || { giorno, zip: g.s.zip.filter((z) => z.dal && giorno >= z.dal && giorno <= (z.al || z.dal)), stato: '' };
+  const titolo = `${GIORNI[new Date(giorno + 'T12:00').getDay()]} ${isoIta(giorno)}`;
+  if (!x.zip.length) {
+    apriFoglio(`<h1>${titolo}</h1>
+      <div class="carta avviso-carta"><b>${x.stato === 'ignorato' ? 'Giorno ignorato' : 'Nessuno ZIP con i prelievi di questo giorno'}</b>
+      <small class="tenue">${x.stato === 'ignorato' ? 'Lo hai segnato come giorno senza prelievi.' : 'Di solito arriva il giorno dopo nella cartella di Drive. Se quel giorno il distributore era chiuso, puoi ignorarlo.'}</small>
+      ${x.stato === 'manca' ? `<div class="affianca"><button type="button" class="btn piccolo" data-a="controlla">Controlla Drive</button><button type="button" class="btn vuoto piccolo" data-a="ignora-giorno" data-giorno="${giorno}">Ignora il giorno</button></div>` : ''}</div>`);
+    return;
+  }
+  foglioZip(x.zip[x.zip.length - 1].nome, titolo);
+}
+
+function foglioZip(nome, titolo = '') {
+  const z = g.dettaglioZip(nome);
+  if (!z) return;
+  const righe = z.dettaglio || [];
+  const contate = righe.filter((r) => r.esito === 'scaricata' || r.esito === 'controllo sul posto').length;
+  const verifica = z.ricostruito
+    ? `<div class="carta"><b>${righe.length} righe · ${num(z.pezzi)} pezzi scaricati</b><small class="tenue">ZIP importato dal programma del PC il ${isoIta((z.importato_il || '').slice(0, 10))}: righe ricostruite dallo storico.</small></div>`
+    : `<div class="carta ${z.completo ? '' : 'avviso-carta'}"><div style="display:flex;gap:12px;align-items:center">${z.completo ? ico.ok : '<span class="stato-z controlla">!</span>'}
+        <div style="display:flex;flex-direction:column"><b>${z.completo ? 'Completo: tutte le righe contate' : 'Da controllare'}</b>
+        <small class="tenue">${righe.length} righe nel PDF · ${num(z.pezzi_pdf)} pezzi nel PDF = ${num(z.pezzi)} scaricati${z.sospesi ? ` + ${num(z.sospesi)} da abbinare` : ''}${z.ignorati ? ` + ${num(z.ignorati)} ignorati` : ''}</small></div></div>
+        ${(z.errori || []).length ? `<small style="color:var(--rosso)">${z.errori.map(esc).join('<br>')}</small>` : ''}</div>`;
+  apriFoglio(`<h1>${esc(titolo || 'ZIP')}</h1>
+    <div class="tenue"><b style="color:var(--testo)">${esc(z.nome)}</b><br>Prelievi ${z.dal === z.al || !z.al ? 'del ' + isoIta(z.dal) : `dal ${isoIta(z.dal)} al ${isoIta(z.al)}`} · importato il ${isoIta((z.importato_il || '').slice(0, 10))} alle ${(z.importato_il || '').slice(11, 16)}</div>
+    ${verifica}
+    <h2>Righe del PDF (${contate} di ${righe.length} contate)</h2>
+    <div class="lista">${righe.map((r) => `<${r.cod ? `button type="button" data-a="articolo" data-codice="${esc(r.cod)}"` : 'div'} class="voce">
+      <span class="corpo"><b class="taglia">${esc(r.d)}</b><small>PDF ${esc(r.cp)} → ${r.cod ? `<b style="color:var(--rosa)">${esc(r.cod)}</b>` : `<b style="color:var(--arancio)">${esc(r.esito)}</b>`}${r.esito === 'controllo sul posto' ? ' · già tolti al controllo' : ''}</small></span>
+      <b style="font-size:17px">${num(r.q)}</b></${r.cod ? 'button' : 'div'}>`).join('') || '<div class="vuoto-msg">Nessuna riga</div>'}</div>`);
 }
 
 async function foglioCartelle() {
@@ -409,6 +515,9 @@ const azioni = {
   'controlla': () => { chiudiFoglio(); sincronizza(true); },
   'chiudi': () => chiudiFoglio(),
   'articolo': (el) => foglioArticolo(el.dataset.codice),
+  'modifica-articolo': (el) => foglioArticolo(el.dataset.codice, true),
+  'giorno-zip': (el) => foglioGiorno(el.dataset.giorno),
+  'zip': (el) => foglioZip(el.dataset.nome),
   'filtro': (el) => { ui.filtro = el.dataset.filtro; disegna(); },
   'tipo-storico': (el) => { ui.tipoStorico = el.dataset.tipo; ui.quantiStorico = 150; disegna(); },
   'altri-storico': () => { ui.quantiStorico += 300; disegna(); },
@@ -420,7 +529,7 @@ const azioni = {
     if (!confirm(`Hai riportato i ${pezzi} pezzi nel distributore?\n\nTornano nel distributore e quelli oltre il carico completo vanno in magazzino.`)) return;
     cambia(() => g.rifornimentoFatto(), (r) => `Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi.`);
   },
-  'ignora-giorno': (el) => cambia(() => { g.s.giorni_ignorati.push(el.dataset.giorno); g.s.aggiornato = new Date().toISOString(); }),
+  'ignora-giorno': (el) => cambia(() => { g.s.giorni_ignorati.push(el.dataset.giorno); g.s.aggiornato = new Date().toISOString(); }, 'Giorno ignorato.').then(chiudiFoglio),
   'ignora-riga': (el) => { if (confirm('Questa descrizione non verrà più considerata nei prossimi ZIP. Continuo?')) cambia(() => g.ignora(Number(el.dataset.i)), 'Ignorata.').then(foglioDrive); },
   'nuovo-articolo': () => {
     const codice = prompt('Codice AS400 del nuovo articolo:'); if (!codice) return;
@@ -458,7 +567,7 @@ document.addEventListener('submit', (e) => {
   const f = e.target;
   if (f.id === 'form-articolo') {
     const dati = Object.fromEntries(new FormData(f));
-    cambia(() => g.modificaArticolo(f.dataset.codice, dati), 'Articolo salvato.').then(chiudiFoglio);
+    cambia(() => g.modificaArticolo(f.dataset.codice, dati), 'Articolo salvato.').then(() => foglioArticolo(f.dataset.codice));
   }
   if (f.dataset.sospesa !== undefined) {
     const codice = String(new FormData(f).get('codice') || '').trim().toUpperCase();
