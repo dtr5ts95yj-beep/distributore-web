@@ -262,6 +262,32 @@ export class Gestionale {
     this._tocca();
   }
 
+  /** Aggiunge o cambia un abbinamento PDF → AS400 (vale per i prossimi ZIP; quelli già importati non cambiano). */
+  salvaAbbinamento(descrizionePdf, codicePdf, codice, chiaveVecchia = '') {
+    const d = String(descrizionePdf || '').trim();
+    if (!d) throw new Error('Scrivi la descrizione come è nel PDF.');
+    if (!this.s.prodotti[codice]) throw new Error('Scegli il codice AS400.');
+    const k = chiave(d);
+    this.s.abbinamenti = this.s.abbinamenti.filter((a) => a.chiave !== k && (!chiaveVecchia || a.chiave !== chiaveVecchia));
+    this.s.abbinamenti.push({ chiave: k, descrizione_pdf: d, codice_pdf: String(codicePdf || '').trim(), codice });
+    this.s.ignorate = this.s.ignorate.filter((x) => x !== k);
+    this._tocca();
+    return true;
+  }
+
+  togliAbbinamento(k) { this.s.abbinamenti = this.s.abbinamenti.filter((a) => a.chiave !== k); this._tocca(); }
+
+  /** Le descrizioni viste nei PDF (ZIP importati, storico, righe sospese) con il loro codice PDF. */
+  descrizioniPdf() {
+    const per = new Map();
+    const metti = (d, cp) => { d = String(d || '').trim(); if (!d) return; const k = chiave(d); if (!per.has(k)) per.set(k, { chiave: k, descrizione_pdf: d, codice_pdf: String(cp || '') }); };
+    for (const z of this.s.zip) for (const r of z.dettaglio || []) metti(r.d, r.cp);
+    for (const m of this.s.movimenti) { const x = /PDF: (.*) \(cod\. PDF ([^)]*)\)/.exec(m.note || ''); if (x) metti(x[1], x[2]); }
+    for (const x of this.s.sospese) metti(x.descrizione_pdf, x.codice_pdf);
+    for (const a of this.s.abbinamenti) metti(a.descrizione_pdf, a.codice_pdf);
+    return [...per.values()].sort((a, b) => a.descrizione_pdf.localeCompare(b.descrizione_pdf));
+  }
+
   trovaCodice(descrizione, codicePdf) {
     const k = chiave(descrizione);
     const a = this.s.abbinamenti.find((x) => x.chiave === k) ||

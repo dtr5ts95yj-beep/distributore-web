@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.9';
+const VERSIONE = '3.0';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -223,7 +223,7 @@ function disegna() {
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, magazzino, inventario, zipimportati, storicoimporta, ignorate, info };
+  const pagine = { barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, magazzino, inventario, zipimportati, storicoimporta, ignorate, info };
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
@@ -601,10 +601,14 @@ function altro() {
     ${voce('zipimportati', 'ZIP importati', `${g.s.zip.filter((z) => !z.eliminato && !z.storico).length} ZIP · vedi o annulla`)}
     ${voce('storicoimporta', 'Importa storico', 'ZIP vecchi solo per statistiche e scorte')}
   </div>
+  <h2>Abbinamenti</h2>
+  <div class="lista">
+    ${voce('abbinamenti', 'PDF e AS400', `${g.s.abbinamenti.length} descrizioni del PDF collegate ai codici AS400 · aggiungi e modifica`)}
+    ${voce('barcodeab', 'AS400 e barcode', `${Object.values(g.s.prodotti).filter((p) => (p.barcode || []).length).length} di ${Object.keys(g.s.prodotti).length} articoli con il barcode · carica col lettore`)}
+  </div>
   <h2>Impostazioni</h2>
   <div class="lista">
     ${voce('impostazioni', 'Google Drive', drive.collegato ? `Collegato · cartella ${esc(g.s.impostazioni.drive_cartella_nome || '—')}` : 'Non collegato')}
-    ${voce('abbinamenti', 'Abbinamenti', `${g.s.abbinamenti.length} descrizioni del PDF collegate ai codici AS400`)}
     ${voce('ignorate', 'Descrizioni ignorate', `${g.s.ignorate.length} descrizioni che non conto`)}
     ${voce('aspetto', 'Aspetto e colori', eNotte() ? `Notte · ${COLORI_NOTTE.find(([k]) => k === pref('colori', 'grafite'))?.[1] || ''}` : 'Giorno · rosa e viola')}
     ${voce('backup', 'Backup e ripristino', drive.collegato ? 'Automatico su Drive · copie nel telefono · file' : 'Copie nel telefono · file')}
@@ -716,10 +720,67 @@ function impostazioni() {
 }
 
 function abbinamenti() {
-  return `<h1>Abbinamenti</h1><div class="tenue">Ogni descrizione del PDF è collegata a un codice AS400. Quando arriva una descrizione nuova te la chiedo una volta sola.</div>
-  <div class="lista">${g.s.abbinamenti.slice().sort((a, b) => a.codice.localeCompare(b.codice)).map((a) => `
-    <div class="voce"><span class="corpo"><b>${esc(a.codice)}</b><small class="taglia">${esc((g.prodotto(a.codice) || {}).descrizione || '')}</small><small class="taglia">PDF ${esc(a.codice_pdf || '')} · ${esc(a.descrizione_pdf)}</small></span>
-    <button type="button" class="btn vuoto piccolo" data-a="togli-abbinamento" data-chiave="${esc(a.chiave)}" aria-label="Togli l'abbinamento ${esc(a.descrizione_pdf)}">Togli</button></div>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`;
+  const q = chiave(ui.cercaAbb || '');
+  const tutte = g.descrizioniPdf(), senza = tutte.filter((d) => !g.s.abbinamenti.some((a) => a.chiave === d.chiave) && !g.s.ignorate.includes(d.chiave));
+  const el = g.s.abbinamenti.filter((a) => !q || chiave(a.codice + ' ' + a.descrizione_pdf + ' ' + (g.prodotto(a.codice)?.descrizione || '') + ' ' + (a.codice_pdf || '')).includes(q))
+    .sort((a, b) => a.codice.localeCompare(b.codice) || a.descrizione_pdf.localeCompare(b.descrizione_pdf));
+  return `<h1>PDF e AS400</h1><div class="tenue">Comanda il PDF: ogni descrizione del PDF va a un codice AS400. Qui li aggiungi e li cambi quando vuoi; valgono per gli ZIP che arrivano da adesso.</div>
+  <button type="button" class="btn" data-a="abb-nuovo">+ Nuovo abbinamento</button>
+  ${senza.length ? `<div class="carta avviso-carta"><b>${senza.length} ${senza.length === 1 ? 'descrizione vista nei PDF non è abbinata' : 'descrizioni viste nei PDF non sono abbinate'}</b>
+    <div class="lista">${senza.map((d) => `<button type="button" class="voce" data-a="abb-modifica" data-desc="${esc(d.descrizione_pdf)}" data-cp="${esc(d.codice_pdf)}"><span class="corpo"><b class="taglia">${esc(d.descrizione_pdf)}</b><small>PDF ${esc(d.codice_pdf || '—')} · tocca per abbinare</small></span>${ico.freccia}</button>`).join('')}</div></div>` : ''}
+  <div class="campo"><input type="search" placeholder="Cerca codice, descrizione PDF o AS400…" value="${esc(ui.cercaAbb || '')}" data-input="cercaAbb" id="cerca-abb" autocomplete="off" aria-label="Cerca abbinamento"></div>
+  <div class="tenue">${el.length} abbinamenti · tocca per cambiarlo</div>
+  <div class="lista">${el.map((a) => `<button type="button" class="voce" data-a="abb-modifica" data-chiave="${esc(a.chiave)}"><span class="corpo"><small class="taglia">PDF ${esc(a.codice_pdf || '—')} · ${esc(a.descrizione_pdf)}</small><b>→ ${esc(a.codice)}</b><small class="tenue taglia">${esc((g.prodotto(a.codice) || {}).descrizione || '')}</small></span>${ico.freccia}</button>`).join('') || '<div class="vuoto-msg">Nessuno</div>'}</div>`;
+}
+
+function foglioAbbinamento({ chiaveA = '', desc = '', cp = '' } = {}) {
+  const a = chiaveA ? g.s.abbinamenti.find((x) => x.chiave === chiaveA) : null;
+  const d = a ? a.descrizione_pdf : desc, c = a ? a.codice_pdf : cp;
+  const codici = Object.keys(g.s.prodotti).sort();
+  apriFoglio(`<h1>${a ? 'Cambia abbinamento' : 'Nuovo abbinamento'}</h1>
+    <form id="form-abb" data-vecchia="${esc(chiaveA)}" style="display:flex;flex-direction:column;gap:12px">
+      <div class="campo"><label for="abb-desc">Descrizione come è nel PDF</label><input id="abb-desc" name="desc" value="${esc(d)}" autocomplete="off" required ${a ? '' : 'autofocus'}></div>
+      <div class="campo"><label for="abb-cp">Codice PDF (facoltativo)</label><input id="abb-cp" name="cp" value="${esc(c || '')}" autocomplete="off"></div>
+      <div class="campo"><label for="abb-cod">Codice AS400</label>${sceltaCodice('abb-cod', d || ' ', codici)}</div>
+      <div class="affianca"><button type="button" class="btn vuoto" data-a="chiudi">Annulla</button><button type="submit" class="btn">Salva</button></div>
+    </form>
+    ${a ? `<button type="button" class="btn pericolo piccolo" data-a="togli-abbinamento" data-chiave="${esc(a.chiave)}">Togli questo abbinamento</button>` : ''}`);
+  if (a) $('#abb-cod').value = a.codice;
+}
+
+function barcodeab() {
+  const el = g.elenco();
+  const con = el.filter((p) => (p.barcode || []).length).length;
+  return `<h1>AS400 e barcode</h1><div class="tenue">Il barcode del produttore (EAN) di ogni articolo. Tocca un articolo e inquadra il suo barcode, oppure caricali tutti in fila.</div>
+  <div class="numeri"><div><span>Con barcode</span><strong style="color:var(--verde)">${con}</strong><span>articoli</span></div><div><span>Senza</span><strong style="color:${el.length - con ? 'var(--arancio)' : 'var(--verde)'}">${el.length - con}</strong><span>articoli</span></div></div>
+  <button type="button" class="btn modo-barcode" data-a="bar-fila" ${el.length - con ? '' : 'disabled'}>Caricali in fila <small>uno dietro l'altro: ti dico l'articolo, inquadri, beep, avanti</small></button>
+  <div class="lista">${el.map((p) => `<div class="voce bar-riga" data-codice="${esc(p.codice)}"><button type="button" class="corpo" data-a="bar-uno" data-codice="${esc(p.codice)}" style="background:none;border:0;text-align:left;padding:0">
+      <b>${esc(p.codice)}</b><small class="taglia tenue">${esc(p.descrizione)}</small>
+      ${(p.barcode || []).length ? `<small style="color:var(--verde)">${p.barcode.map(esc).join(' · ')}</small>` : '<small style="color:var(--arancio)">nessun barcode · tocca e inquadra</small>'}</button>
+      <button type="button" class="scan" data-a="bar-uno" data-codice="${esc(p.codice)}" aria-label="Leggi il barcode di ${esc(p.codice)}">${ico.barcode}</button></div>`).join('')}</div>`;
+}
+
+// abbina i barcode: uno solo (articolo scelto) o in fila (tutti quelli senza barcode)
+function caricaBarcode(codici) {
+  let i = 0;
+  const titolo = () => { const p = g.prodotto(codici[i]); return `${i + 1} di ${codici.length} · ${p.codice} — ${p.descrizione}`; };
+  apriLettore((testo, { riprendi, chiudi, box }) => {
+    const k = codici[i], gia = g.trovaBarcode(testo), st = box.querySelector('.let-stato');
+    if (gia && gia !== k) { st.textContent = `${testo} è già di ${gia}: non lo abbino a ${k}`; setTimeout(riprendi, 1600); return; }
+    if (!gia) { g.associaBarcode(k, testo); salva(); }
+    i++;
+    if (i >= codici.length) { avviso(codici.length === 1 ? `Barcode abbinato a ${k}.` : `Fatto: ${codici.length} articoli abbinati.`); chiudi(); return; }
+    box.querySelector('.let-testa b').textContent = titolo(); riprendi(); st.textContent = `${k} ✓ · adesso ${codici[i]}`;
+  }, titolo(), {
+    continuo: true,
+    chiuso: () => disegna(),
+  });
+  if (codici.length > 1) setTimeout(() => {
+    const box = document.getElementById('lettore'); if (!box) return;
+    box.insertAdjacentHTML('beforeend', '<div class="let-fondo"><button type="button" class="btn vuoto" data-x="salta" style="color:#fff">Salta questo</button><button type="button" class="btn" data-x="fine">Fine</button></div>');
+    box.querySelector('[data-x="fine"]').onclick = () => box.querySelector('.let-chiudi').click();
+    box.querySelector('[data-x="salta"]').onclick = () => { i++; if (i >= codici.length) { box.querySelector('.let-chiudi').click(); return; } box.querySelector('.let-testa b').textContent = titolo(); };
+  }, 0);
 }
 
 function backup() {
@@ -1100,6 +1161,10 @@ const azioni = {
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
   'ctrl-barcode': () => modalitaBarcode(),
+  'abb-nuovo': () => foglioAbbinamento(),
+  'abb-modifica': (el) => foglioAbbinamento({ chiaveA: el.dataset.chiave || '', desc: el.dataset.desc || '', cp: el.dataset.cp || '' }),
+  'bar-uno': (el) => caricaBarcode([el.dataset.codice]),
+  'bar-fila': () => caricaBarcode(g.elenco().filter((p) => !(p.barcode || []).length).map((p) => p.codice)),
   'rif-passo': (el) => { ui.scheda = 'rifornimento'; ui.pagina = ''; ui.rifPasso = el.dataset.v; disegna(); window.scrollTo(0, 0); },
   'ordine': (el) => { ui.ordine = el.dataset.v; try { localStorage.setItem('ordine_articoli', ui.ordine); } catch { /* niente */ } disegna(); },
   'associa-bar': (el) => { const k = $('#bar-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.associaBarcode(k, el.dataset.testo), `Barcode abbinato a ${k}.`).then(() => { chiudiFoglio(); vaiAlPezzo(k, el.dataset.dove); }); },
@@ -1159,7 +1224,7 @@ const azioni = {
   'scollega': () => { if (confirm('Scollego Google Drive da questo dispositivo? I dati restano.')) { drive.scollega(); ui.drive = { stato: 'fermo', msg: '', nuovi: [] }; disegna(); } },
   'scegli-cartella': () => foglioCartelle(),
   'cartella': (el) => cambia(() => { g.s.impostazioni.drive_cartella_id = el.dataset.id; g.s.impostazioni.drive_cartella_nome = el.dataset.nome; g.s.aggiornato = new Date().toISOString(); }, 'Cartella scelta.').then(chiudiFoglio),
-  'togli-abbinamento': (el) => { if (confirm('Tolgo questo abbinamento?')) cambia(() => { g.s.abbinamenti = g.s.abbinamenti.filter((a) => a.chiave !== el.dataset.chiave); g.s.aggiornato = new Date().toISOString(); }, 'Abbinamento tolto.'); },
+  'togli-abbinamento': (el) => { if (confirm('Tolgo questo abbinamento? La descrizione tornerà da abbinare al prossimo ZIP.')) cambia(() => g.togliAbbinamento(el.dataset.chiave), 'Abbinamento tolto.').then(chiudiFoglio); },
   'backup': () => scaricaBackup(),
 };
 
@@ -1184,6 +1249,7 @@ document.addEventListener('input', (e) => {
   const k = e.target.dataset.input;
   if (k === 'cerca') { ui.cerca = e.target.value; ui.focus = 'cerca-art'; disegna(); }
   if (k === 'cerca-storico') { ui.cercaStorico = e.target.value; ui.quantiStorico = 150; ui.focus = 'cerca-st'; disegna(); }
+  if (k === 'cercaAbb') { ui.cercaAbb = e.target.value; ui.focus = 'cerca-abb'; disegna(); }
 });
 document.addEventListener('change', (e) => {
   const t = e.target;
@@ -1198,6 +1264,11 @@ document.addEventListener('change', (e) => {
 document.addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.target;
+  if (f.id === 'form-abb') {
+    const d = Object.fromEntries(new FormData(f));
+    cambia(() => g.salvaAbbinamento(d.desc, d.cp, d.codice, f.dataset.vecchia), `Abbinato a ${d.codice}.`).then((r) => { if (r) chiudiFoglio(); });
+    return;
+  }
   if (f.id === 'form-articolo') {
     const dati = Object.fromEntries(new FormData(f));
     const pb = String(dati.pezzi_blister || '').trim(); delete dati.pezzi_blister;
