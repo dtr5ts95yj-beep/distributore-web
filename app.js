@@ -38,7 +38,7 @@ async function backupLocale(motivo) {
 
 // ------------------------------------------------------------------ stato della pagina
 let g = null;                       // Gestionale
-const ui = { scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, inventario: {}, meseStorico: '', mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
+const ui = { ordine: (() => { try { return localStorage.getItem('ordine_articoli') || ''; } catch { return ''; } })(), scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, inventario: {}, meseStorico: '', mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (n) => Number(n || 0).toLocaleString('it-IT');
@@ -416,12 +416,14 @@ function articoli() {
   const tutti = g.elenco();
   const filtri = { tutti: () => true, sotto: (p) => p.sotto || p.negativo, magazzino: (p) => p.magazzino > 0, riordino: (p) => p.sotto || p.negativo || (p.carico_completo != null && p.quantita < p.carico_completo && !(p.magazzino > 0)) };
   const el = tutti.filter(filtri[ui.filtro]).filter((p) => !q || chiave(p.codice + ' ' + p.descrizione).includes(q));
+  if (ui.ordine === 'prelevati') el.sort((a, b) => (giroArt[b.codice] || 0) - (giroArt[a.codice] || 0) || a.codice.localeCompare(b.codice));
   const chip = (k, t, n) => `<button type="button" class="chip" data-a="filtro" data-filtro="${k}" aria-pressed="${ui.filtro === k}">${t} ${n}</button>`;
   return `
   <div class="riga-titolo"><h1>Articoli</h1><button type="button" class="btn vuoto piccolo" data-a="nuovo-articolo">+ Nuovo</button></div>
   <div class="cerca-riga"><label class="cerca">${ico.cerca}<span class="nascosto">Cerca articolo</span><input id="cerca-art" type="search" placeholder="Codice o descrizione" value="${esc(ui.cerca)}" data-input="cerca" autocomplete="off"></label>
     <button type="button" class="scan" data-a="scan" data-dove="articoli" aria-label="Cerca con il barcode">${ico.barcode}</button></div>
   <div class="chips">${ui.filtro === 'riordino' ? chip('riordino', 'Da riordinare', tutti.filter(filtri.riordino).length) : ''}${chip('tutti', 'Tutti', tutti.length)}${chip('sotto', 'Sotto scorta', tutti.filter(filtri.sotto).length)}${chip('magazzino', 'In magazzino', tutti.filter(filtri.magazzino).length)}</div>
+  <div class="ordina"><span>Ordina</span><button type="button" class="chip" data-a="ordine" data-v="" aria-pressed="${ui.ordine !== 'prelevati'}">Per codice</button><button type="button" class="chip" data-a="ordine" data-v="prelevati" aria-pressed="${ui.ordine === 'prelevati'}">Prima i più prelevati</button></div>
   ${el.length ? el.map((p) => {
     const c = p.carico_completo;
     const pieno = c ? Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c))) : 0;
@@ -766,6 +768,7 @@ function foglioArticolo(codice, modifica = false) {
     <div class="grafico">${st.giorni.map((x) => `<div title="${isoIta(x.giorno)}: ${x.pezzi}"><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / maxG)}%"></span><span class="e">${Number(x.giorno.slice(8))}</span></div>`).join('')}</div>
     <h2>Per settimana</h2>
     <div class="grafico sett">${st.settimane.map((x) => `<div><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / maxS)}%"></span><span class="e">${isoIta(x.dal).slice(0, 5)}</span></div>`).join('')}</div>
+    <div class="carta"><b>Barcode abbinati</b>${(p.barcode || []).length ? (p.barcode || []).map((b) => `<div class="riga-titolo" style="align-items:center"><span>${esc(b)}</span><button type="button" class="btn vuoto piccolo" data-a="togli-bar" data-codice="${esc(codice)}" data-testo="${esc(b)}">Togli</button></div>`).join('') : '<small class="tenue">Nessuno. Inquadra il barcode del pezzo con il pulsante barcode: la prima volta ti chiedo a quale articolo appartiene.</small>'}</div>
     <div class="affianca"><button type="button" class="btn secondario" data-a="modifica-articolo" data-codice="${esc(codice)}">Modifica</button><button type="button" class="btn vuoto" data-a="carica-mag" data-codice="${esc(codice)}">Carica in magazzino</button></div>
     <h2>Avanti e indietro: distributore e magazzino</h2>
     <div class="lista">${storia.map((m) => {
@@ -934,7 +937,15 @@ function modalitaBarcode() {
       setTimeout(() => { inp.focus(); inp.select(); }, 50);
     };
     const k = g.trovaBarcode(testo);
-    if (!k) { const st = box.querySelector('.let-stato'); st.textContent = `${testo}: non è un codice AS400 dei tuoi articoli, lo ignoro`; setTimeout(() => { riprendi(); st.textContent = 'Cerco…'; }, 1500); return; }
+    if (!k) {
+      pannello.innerHTML = `<div class="lp-art"><b>Barcode nuovo</b><span>${esc(testo)}</span><small>Non è ancora abbinato. A quale articolo appartiene? Lo abbini una volta sola, poi lo riconosco da solo.</small></div>
+        <select aria-label="Articolo"><option value="">Scegli l'articolo…</option>${Object.keys(g.s.prodotti).sort().map((c) => `<option value="${esc(c)}">${esc(c)} – ${esc(g.prodotto(c).descrizione)}</option>`).join('')}</select>
+        <div class="affianca"><button type="button" class="btn vuoto" data-x="salta">Salta</button><button type="button" class="btn" data-x="abbina">Abbina</button></div>`;
+      pannello.querySelector('[data-x="salta"]').onclick = () => { pannello.remove(); riprendi(); };
+      pannello.querySelector('[data-x="abbina"]').onclick = () => { const c = pannello.querySelector('select').value; if (!c) return; g.associaBarcode(c, testo); salva(); mostra(c); };
+      box.appendChild(pannello);
+      return;
+    }
     mostra(k);
     box.appendChild(pannello);
   }, 'Controllo sul posto · Barcode', {
@@ -952,8 +963,11 @@ function modalitaBarcode() {
 
 function dopoScan(testo, dove) {
   const k = g.trovaBarcode(testo);
-  if (k) vaiAlPezzo(k, dove);
-  else avviso(`${testo}: non è un codice AS400 dei tuoi articoli.`, true);
+  if (k) { vaiAlPezzo(k, dove); return; }
+  // barcode del produttore mai visto: si abbina una volta e poi si riconosce da solo; finché non è abbinato non tocca niente
+  apriFoglio(`<h1>Barcode nuovo</h1><div class="tenue">Ho letto <b style="color:var(--testo)">${esc(testo)}</b> ma non è ancora abbinato. A quale articolo appartiene? Da adesso lo riconosco da solo.</div>
+    <div class="campo"><label for="bar-art">Articolo</label><select id="bar-art"><option value="">Scegli l'articolo…</option>${Object.keys(g.s.prodotti).sort().map((c) => `<option value="${esc(c)}">${esc(c)} – ${esc(g.prodotto(c).descrizione)}</option>`).join('')}</select></div>
+    <div class="affianca"><button type="button" class="btn vuoto" data-a="chiudi">Lascia stare</button><button type="button" class="btn" data-a="associa-bar" data-testo="${esc(testo)}" data-dove="${esc(dove)}">Abbina</button></div>`);
 }
 
 function vaiAlPezzo(k, dove) {
@@ -1049,6 +1063,9 @@ const azioni = {
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
   'ctrl-barcode': () => modalitaBarcode(),
+  'ordine': (el) => { ui.ordine = el.dataset.v; try { localStorage.setItem('ordine_articoli', ui.ordine); } catch { /* niente */ } disegna(); },
+  'associa-bar': (el) => { const k = $('#bar-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.associaBarcode(k, el.dataset.testo), `Barcode abbinato a ${k}.`).then(() => { chiudiFoglio(); vaiAlPezzo(k, el.dataset.dove); }); },
+  'togli-bar': (el) => { if (confirm(`Tolgo il barcode ${el.dataset.testo} da ${el.dataset.codice}?`)) cambia(() => g.togliBarcode(el.dataset.codice, el.dataset.testo), 'Barcode tolto.').then(() => foglioArticolo(el.dataset.codice)); },
   'scan': (el) => { const dove = el.dataset.dove; apriLettore((testo) => dopoScan(testo, dove), dove === 'controllo' ? 'Controllo sul posto: inquadra il barcode' : 'Inquadra il barcode'); },
   'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
   'pref-modo': (el) => { try { localStorage.setItem('pref_modo', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },

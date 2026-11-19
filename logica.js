@@ -217,11 +217,29 @@ export class Gestionale {
     }).sort((a, b) => a.codice.localeCompare(b.codice));
   }
 
-  /** Articolo dal barcode letto: vale solo il codice AS400 di un articolo che c'è; tutto il resto si ignora. */
+  /** Articolo dal barcode letto: un barcode del produttore abbinato una volta, o il codice AS400 stesso. Altrimenti null. */
   trovaBarcode(testo) {
-    const t = String(testo || '').trim().toUpperCase();
+    const t = String(testo || '').trim();
     if (!t) return null;
-    return Object.keys(this.s.prodotti).find((c) => c.toUpperCase() === t) || null;
+    const ab = Object.values(this.s.prodotti).find((p) => (p.barcode || []).includes(t));
+    if (ab) return ab.codice;
+    const su = t.toUpperCase();
+    return Object.keys(this.s.prodotti).find((c) => c.toUpperCase() === su) || null;
+  }
+
+  associaBarcode(codice, testo) {
+    const p = this.s.prodotti[codice];
+    if (!p) throw new Error('Articolo non trovato.');
+    const t = String(testo).trim();
+    for (const q of Object.values(this.s.prodotti)) if (q.barcode) q.barcode = q.barcode.filter((b) => b !== t);
+    (p.barcode ||= []).push(t);
+    this._tocca();
+  }
+
+  togliBarcode(codice, testo) {
+    const p = this.s.prodotti[codice];
+    if (p?.barcode) p.barcode = p.barcode.filter((b) => b !== testo);
+    this._tocca();
   }
 
   trovaCodice(descrizione, codicePdf) {

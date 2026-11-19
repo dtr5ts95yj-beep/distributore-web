@@ -312,3 +312,5 @@ html[data-colori="indaco"] { --fondo: #0b0b1a; --scheda: #16162e; --scheda2: #1c
 .let-fondo { position: absolute; left: 12px; right: 12px; bottom: calc(var(--basso) + 20px); display: flex; align-items: center; gap: 12px; background: rgba(0, 0, 0, .6); border-radius: 18px; padding: 10px 10px 10px 16px; color: #fff; font-weight: 700; }
 .let-fondo .let-conta { flex: 1; } .let-fondo .btn { min-height: 44px; padding: 0 22px; }
 #lettore .let-stato { bottom: calc(var(--basso) + 92px); }
+
+.ordina { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .ordina > span { font-size: 13px; color: var(--tenue); font-weight: 700; }
