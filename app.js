@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.5';
+const VERSIONE = '1.6';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -176,22 +176,31 @@ function listaCaricamento() {
 }
 
 function strisciaZip() {
-  // solo i giorni dalla data di partenza in avanti: quelli prima li gestiva il programma
+  // da rifornimento a rifornimento: dal giorno dopo l'ultimo ZIP già riportato fino a ieri
   const part = g.s.impostazioni.zip_partenza ? piuGiorni(g.s.impostazioni.zip_partenza, -1) : '';
-  const giorni = g.giorniZip(7).filter((x) => !part || x.giorno >= part);
+  const riportati = g.s.zip.filter((z) => z.rifornito && !z.eliminato && !z.storico && z.dal);
+  let inizio = riportati.length ? piuGiorni(riportati.map((z) => z.al || z.dal).sort().pop(), 1) : part;
+  if (part && (!inizio || inizio < part)) inizio = part;
+  const ieri = piuGiorni(oggiIso(), -1);
+  if (!inizio) inizio = piuGiorni(ieri, -6);
+  const n = Math.max(0, Math.round((new Date(ieri + 'T12:00') - new Date(inizio + 'T12:00')) / 864e5) + 1);
+  const giorni = n ? g.giorniZip(Math.min(n, 60)) : [];
+  const ultimo = g.s.rifornimenti.length ? g.s.rifornimenti[g.s.rifornimenti.length - 1].data_ora.slice(0, 10) : '';
   const mancano = giorni.filter((x) => x.stato === 'manca').length;
   const controlla = giorni.filter((x) => x.stato === 'controlla').length;
-  const frase = mancano ? `Manca${mancano === 1 ? '' : 'no'} ${mancano} ${mancano === 1 ? 'giorno' : 'giorni'}` : controlla ? 'Uno ZIP da controllare' : 'Tutti gli ZIP ci sono';
+  const pezziTot = giorni.reduce((t, x) => t + x.zip.reduce((u, z) => u + (g.dettaglioZip(z.nome)?.pezzi || 0), 0), 0);
+  const frase = !giorni.length ? 'Nessun giorno nuovo' : mancano ? `Manca${mancano === 1 ? '' : 'no'} ${mancano} ${mancano === 1 ? 'giorno' : 'giorni'}` : controlla ? 'Uno ZIP da controllare' : 'Tutti gli ZIP ci sono';
   const SIGLE = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
   return `<div class="carta">
-    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">ZIP ${giorni.length < 7 && part ? 'dal ' + isoIta(part).slice(0, 5) : 'degli ultimi 7 giorni'}</b><span class="tenue" style="color:${mancano ? 'var(--rosso)' : controlla ? 'var(--arancio)' : 'var(--verde)'};font-weight:700">${frase}</span></div>
-    <div class="striscia">${giorni.map((x) => {
+    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">ZIP dall'ultimo rifornimento</b><span class="tenue" style="color:${mancano ? 'var(--rosso)' : controlla ? 'var(--arancio)' : 'var(--verde)'};font-weight:700">${frase}</span></div>
+    <small class="tenue">${ultimo ? `Ultimo rifornimento il ${isoIta(ultimo)}` : 'Ultimo rifornimento fatto col programma'} · prelievi dal ${isoIta(inizio)}${giorni.length ? ` · ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}, ${num(pezziTot)} pezzi` : ''}</small>
+    ${giorni.length ? `<div class="striscia">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
       return `<button type="button" class="tile ${x.stato}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
         <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]}</span><span class="nr">${Number(x.giorno.slice(8))}</span>
         <span class="si">${SIMBOLI[x.stato]}</span><span class="pz">${x.zip.length ? num(pezzi) : ''}</span></button>`;
     }).join('')}</div>
-    <small class="tenue">Tocca un giorno per vedere il suo ZIP riga per riga.</small>
+    <small class="tenue">Tocca un giorno per vedere il suo ZIP riga per riga. Quando segni il rifornimento come fatto, la striscia riparte.</small>` : '<small class="tenue">Il rifornimento ha già coperto tutti gli ZIP: domani compare il primo giorno nuovo.</small>'}
   </div>`;
 }
 
