@@ -332,7 +332,13 @@ export class Gestionale {
       const x = (giorni[g] ||= { file: 0, riportati: 0, articoli: 0, pezzi: 0, zip: [] });
       x.file++; x.riportati += z.rifornito ? 1 : 0; x.articoli += cod.size; x.pezzi += d.pezzi || 0; x.zip.push(z.nome);
     }
-    for (const x of Object.values(giorni)) x.stato = x.riportati === x.file ? 'riportato' : 'da_riportare';
+    // i giorni più vecchi, senza ZIP salvato: dallo storico dei prelievi (già riportati)
+    for (const [g, c] of Object.entries(this.s.consumi)) {
+      if (g < inizio || g > fine || giorni[g]) continue;
+      const v = Object.values(c).filter((q) => q > 0);
+      if (v.length) giorni[g] = { file: 0, riportati: 0, articoli: v.length, pezzi: v.reduce((a, b) => a + b, 0), zip: [], storico: true };
+    }
+    for (const x of Object.values(giorni)) x.stato = x.storico || x.riportati === x.file ? 'riportato' : 'da_riportare';
     return giorni;
   }
 

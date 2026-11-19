@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.8';
+const VERSIONE = '1.9';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -43,6 +43,17 @@ const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const num = (n) => Number(n || 0).toLocaleString('it-IT');
 const GIORNI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+// il distributorino dell'icona, colorato secondo lo stato del giorno
+function distributorino(stato) {
+  const ok = stato === 'ok', vuoto = stato === 'manca' || stato === 'prima' || stato === 'ignorato';
+  const col = ok ? ['#ff7fbf', '#ffd166', '#6ee7b7', '#7cc4ff', '#ff7fbf', '#6ee7b7'] : stato === 'controlla' ? Array(6).fill('#ffb454') : Array(6).fill('#4a3d63');
+  const corpo = vuoto ? '#8f86a6' : '#f4f1fb';
+  return `<svg class="dist" viewBox="0 0 24 30" aria-hidden="true"><rect x="1" y="1" width="22" height="28" rx="3.5" fill="${corpo}"/><rect x="3.5" y="3.5" width="12" height="15" rx="1.5" fill="#2a1d45"/>
+    ${col.map((c, i) => `<rect x="${5 + (i % 3) * 3.6}" y="${5.5 + Math.floor(i / 3) * 4.4}" width="2.4" height="2.4" rx=".6" fill="${c}"/>`).join('')}
+    <rect x="5" y="15" width="9" height="1" rx=".5" fill="#6d5f8f"/><rect x="17.5" y="4" width="3.5" height="1.4" rx=".7" fill="#7c5cff"/><circle cx="19.2" cy="8" r="1.1" fill="#d65cff"/><rect x="18.3" y="10.5" width="1.8" height="6" rx=".9" fill="#cfc8e2"/>
+    <rect x="4" y="21.5" width="16" height="4" rx="1.6" fill="#2a1d45"/></svg>`;
+}
+
 const ico = {
   aggiorna: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>',
   freccia: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;color:var(--tenue)"><path d="m9 5 7 7-7 7"/></svg>',
@@ -193,8 +204,8 @@ function strisciaZip() {
     ${giorni.length ? `<div class="striscia">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
       return `<button type="button" class="tile ${x.stato}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
-        <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]}</span><span class="nr">${Number(x.giorno.slice(8))}</span>
-        <span class="si">${SIMBOLI[x.stato]}</span><span class="pz">${x.zip.length ? num(pezzi) : ''}</span></button>`;
+        <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]} <b>${Number(x.giorno.slice(8))}</b></span>
+        <span class="dist-box">${distributorino(x.stato)}<span class="si">${SIMBOLI[x.stato]}</span></span><span class="pz">${x.zip.length ? num(pezzi) + ' pz' : x.stato === 'manca' ? 'manca' : ''}</span></button>`;
     }).join('')}</div>
     <small class="tenue">Tocca un giorno per vedere il suo ZIP riga per riga. Quando segni il rifornimento come fatto, la striscia riparte.</small>` : '<small class="tenue">Il rifornimento ha già coperto tutti gli ZIP: domani compare il primo giorno nuovo.</small>'}
   </div>`;
@@ -306,11 +317,22 @@ function articoli() {
     const c = p.carico_completo;
     const pieno = c ? Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c))) : 0;
     const ultimo = ultimoPrelievo(p.codice);
+    const manca = c != null ? Math.max(0, c - p.quantita) : 0;
+    const stato = c == null ? '<span class="tenue">Carico completo non impostato: aprilo e scegli Modifica</span>'
+      : !manca ? '<span style="color:var(--verde)">Distributore pieno</span>'
+      : p.magazzino > 0 ? `<span style="color:var(--arancio)">Mancano ${num(manca)} per il pieno: li prendo dal magazzino</span>`
+      : `<span style="color:var(--rosso)">Mancano ${num(manca)} per il pieno · magazzino vuoto</span>`;
     return `<button type="button" class="articolo${p.sotto ? ' sotto' : ''}${p.negativo ? ' negativo' : ''}" data-a="articolo" data-codice="${esc(p.codice)}">
       <span class="testa"><span style="display:flex;flex-direction:column;min-width:0"><b style="font-size:16px">${esc(p.codice)}</b><small class="tenue">${esc(p.descrizione)}</small></span>
-      <span class="q">${num(p.quantita)}${c != null ? `<small> / ${num(c)}</small>` : ''}</span></span>
+      ${giroArt[p.codice] ? `<span class="prel"><small>prelevati</small><b>${num(giroArt[p.codice])}</b></span>` : ''}</span>
+      <span class="tre-art">
+        <span><small>Carico completo</small><b>${c != null ? num(c) : '—'}</b></span>
+        <span class="${p.quantita < 0 ? 'neg' : manca ? 'sotto-c' : ''}"><small>Nel distributore</small><b>${num(p.quantita)}</b></span>
+        <span><small>Magazzino</small><b>${num(p.magazzino)}</b></span>
+      </span>
       ${c ? `<span class="barra"><div style="width:${pieno}%"></div></span>` : ''}
-      <span class="piede"><span>${giroArt[p.codice] ? `Prelevati <b style="color:var(--rosa)">${num(giroArt[p.codice])}</b> · ` : ''}Magazzino <b>${num(p.magazzino)}</b> · Totale <b>${num(p.disponibile)}</b>${p.scorta_minima != null ? ` / min. ${num(p.scorta_minima)}` : ''}</span><span>${ultimo}</span></span>
+      <span class="piede"><span>${stato}</span></span>
+      <span class="piede"><span>Totale <b>${num(p.disponibile)}</b>${p.scorta_minima != null ? ` · scorta min. <b>${num(p.scorta_minima)}</b>` : ''}</span><span>${ultimo}</span></span>
     </button>`;
   }).join('') : '<div class="vuoto-msg">Nessun articolo.</div>'}`;
 }
@@ -678,6 +700,14 @@ function foglioGiorno(giorno) {
   const zipG = g.s.zip.filter((z) => !z.nascosto && z.dal && giorno >= z.dal && giorno <= (z.al || z.dal));
   const x = g.giorniZip(7).find((y) => y.giorno === giorno) || { giorno, zip: zipG, stato: zipG.length ? 'ok' : (g.giorniMancanti().includes(giorno) ? 'manca' : (g.s.giorni_ignorati.includes(giorno) ? 'ignorato' : '')) };
   const titolo = `${GIORNI[new Date(giorno + 'T12:00').getDay()]} ${isoIta(giorno)}`;
+  if (!x.zip.length && g.s.consumi[giorno] && Object.values(g.s.consumi[giorno]).some((q) => q > 0)) {
+    const righe = Object.entries(g.s.consumi[giorno]).filter(([, q]) => q > 0).sort((a, b) => b[1] - a[1]);
+    apriFoglio(`<h1>${titolo}</h1>
+      <div class="tenue"><b style="color:#ff8a8a">già riportato</b> · prelievi dallo storico del programma</div>
+      <div class="carta"><b>${righe.length} articoli · ${num(righe.reduce((t, [, q]) => t + q, 0))} pezzi</b></div>
+      <div class="lista">${righe.map(([k, q]) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(k)}"><span class="corpo"><b>${esc(k)}</b><small class="taglia">${esc(g.prodotto(k)?.descrizione || '')}</small></span><b style="font-size:18px">${num(q)}</b></button>`).join('')}</div>`);
+    return;
+  }
   if (!x.zip.length) {
     apriFoglio(`<h1>${titolo}</h1>
       <div class="carta avviso-carta"><b>${x.stato === 'ignorato' ? 'Giorno ignorato' : 'Nessuno ZIP con i prelievi di questo giorno'}</b>

@@ -104,7 +104,7 @@ code { font-size: 13px; background: #2c1c4a; padding: 2px 6px; border-radius: 6p
 
 /* striscia degli ZIP */
 .striscia { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-.tile { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 0 6px; border-radius: 12px; border: 0; background: #1c3a2c; color: var(--testo); min-height: 78px; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0 6px; border-radius: 12px; border: 0; background: #1c3a2c; color: var(--testo); min-height: 96px; }
 .tile .sg { font-size: 11px; color: var(--tenue); font-weight: 700; } .tile .nr { font-size: 17px; font-weight: 800; }
 .tile .si { font-size: 15px; font-weight: 800; color: var(--verde); } .tile .pz { font-size: 11px; color: var(--tenue); min-height: 13px; }
 .tile.manca { background: #4a1d2a; } .tile.manca .si { color: var(--rosso); }
@@ -160,3 +160,16 @@ main > * { flex-shrink: 0; }
 .ctrl-riga:not(.segnato) .ctrl-q { color: var(--tenue); }
 .ctrl-barra { position: sticky; bottom: calc(68px + var(--basso)); z-index: 4; padding-top: 8px; }
 .ctrl-barra .btn { width: 100%; }
+
+.striscia { row-gap: 8px; }
+.tile .sg b { color: var(--testo); font-size: 13px; }
+.dist-box { position: relative; display: block; width: 30px; height: 37px; }
+.dist-box .dist { width: 30px; height: 37px; display: block; }
+.dist-box .si { position: absolute; right: -9px; bottom: -4px; width: 19px; height: 19px; border-radius: 50%; background: #10291f; display: grid; place-items: center; font-size: 11px; line-height: 1; }
+.tile.manca .dist-box .si { background: #3a1220; } .tile.controlla .dist-box .si { background: #3a250d; } .tile.prima .dist-box .si, .tile.ignorato .dist-box .si { background: #1a1229; }
+.tile .pz { font-size: 11px; font-weight: 700; }
+.articolo .prel { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; } .articolo .prel small { font-size: 11px; color: var(--tenue); } .articolo .prel b { color: var(--rosa); font-size: 18px; }
+.tre-art { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tre-art > span { display: flex; flex-direction: column; background: rgba(255, 255, 255, .05); border-radius: 10px; padding: 7px 9px; }
+.tre-art small { font-size: 11px; color: var(--tenue); } .tre-art b { font-size: 20px; }
+.tre-art .sotto-c b { color: var(--arancio); } .tre-art .neg b { color: var(--rosso); }
