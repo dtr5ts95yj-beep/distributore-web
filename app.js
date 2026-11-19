@@ -355,6 +355,38 @@ function livelloMagazzino() {
   return { ora, manca, pieno, pct: pieno ? Math.floor(ora * 100 / pieno) : null };
 }
 
+// il distributore grande di Oggi: gli scaffali accesi sono la percentuale di pieno
+function distributoreGrande(pct, mancano, daRiportare) {
+  const RIGHE = 5, COL = 4, tot = RIGHE * COL, accesi = Math.round((pct ?? 0) / 100 * tot);
+  const COLORI = ['#ff7fbf', '#ffd166', '#6ee7b7', '#7cc4ff', '#c79bff', '#ff9f6b'];
+  let celle = '';
+  for (let r = 0; r < RIGHE; r++) for (let c = 0; c < COL; c++) {
+    const i = r * COL + c, on = i >= tot - accesi;   // si svuota dall'alto
+    const x = 22 + c * 25, y = 46 + r * 30, col = COLORI[(i * 7 + r) % COLORI.length];
+    celle += on
+      ? `<g class="prod" style="--i:${tot - i}"><rect x="${x}" y="${y}" width="17" height="21" rx="4" fill="${col}"/><rect x="${x + 3}" y="${y + 3}" width="5" height="12" rx="2" fill="#fff" opacity=".35"/></g>`
+      : `<rect x="${x}" y="${y}" width="17" height="21" rx="4" fill="#ffffff" opacity=".05"/>`;
+    if (c === 0) celle += `<rect x="18" y="${y + 23}" width="100" height="3" rx="1.5" fill="#000" opacity=".35"/>`;
+  }
+  return `<svg class="dist-grande${mancano ? ' allarme' : ''}" viewBox="0 0 170 260" aria-hidden="true"><defs>
+      <linearGradient id="dg-corpo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d9d1ee"/></linearGradient>
+      <linearGradient id="dg-vetro" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2a62"/><stop offset="1" stop-color="#160e2b"/></linearGradient>
+      <linearGradient id="dg-insegna" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--a1)"/><stop offset="1" style="stop-color:var(--a2)"/></linearGradient>
+      <linearGradient id="dg-riflesso" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+    <rect x="4" y="4" width="162" height="250" rx="18" fill="url(#dg-corpo)"/>
+    <rect x="4" y="4" width="162" height="34" rx="18" fill="url(#dg-insegna)"/><rect x="4" y="22" width="162" height="16" fill="url(#dg-insegna)"/>
+    <text x="85" y="28" text-anchor="middle" class="dg-pct">GD</text>
+    <rect x="12" y="42" width="112" height="160" rx="10" fill="url(#dg-vetro)"/>
+    ${celle}
+    <rect x="12" y="42" width="112" height="160" rx="10" fill="url(#dg-riflesso)"/>
+    <rect x="132" y="46" width="26" height="30" rx="5" fill="#1c1233"/><text x="145" y="66" text-anchor="middle" class="dg-num">${daRiportare}</text>
+    ${[0, 1, 2].map((r) => [0, 1].map((c) => `<rect x="${134 + c * 12}" y="${84 + r * 12}" width="9" height="8" rx="2" fill="#2a1d45" opacity=".55"/>`).join('')).join('')}
+    <circle class="dg-led" cx="145" cy="132" r="6"/><rect x="139" y="146" width="12" height="40" rx="6" fill="#2a1d45" opacity=".3"/>
+    <rect x="16" y="212" width="138" height="30" rx="10" fill="#1c1233"/>
+    <rect class="dg-cade" x="74" y="219" width="22" height="14" rx="4" fill="#ffd166"/>
+  </svg>`;
+}
+
 function oggi() {
   const giro = g.prelieviGiro();
   const d = new Date();
@@ -366,47 +398,45 @@ function oggi() {
   const ora = d.getHours();
   const saluto = ora < 13 ? 'Buongiorno' : ora < 18 ? 'Buon pomeriggio' : 'Buonasera';
   const liv = livelloMagazzino();
-  const zipOk = giro.giorni.length - giro.mancanti.length;
-  const quota = liv.pct != null ? liv.pct / 100 : (giro.giorni.length ? zipOk / giro.giorni.length : 0);
-  const CM = 2 * Math.PI * 70;
-  // ultimo ZIP
   const zu = g.s.zip.filter((z) => !z.eliminato && !z.storico && z.dal).sort((a, b) => (a.al || a.dal).localeCompare(b.al || b.dal) || (a.importato_il || '').localeCompare(b.importato_il || '')).pop();
   const zd = zu ? g.dettaglioZip(zu.nome) : null;
-  // settimana
-  const lun = lunediDi(oggiIso()), cal = g.calendario(lun, piuGiorni(lun, 6)), manc = new Set(giro.mancanti);
-  const top = giro.righe.slice(0, 5), maxTop = Math.max(1, ...top.map((r) => r.totale));
+  const manc = giro.mancanti;
+  const gg = (x) => isoIta(x).slice(0, 5);
+  const frase = manc.length ? `Mancano gli ZIP ${manc.length === 1 ? 'del ' + gg(manc[0]) : 'di ' + manc.length + ' giorni (' + manc.map(gg).join(', ') + ')'}. Da riportare ${num(pezziBozza)} pezzi.`
+    : pezziBozza ? `Tutti gli ZIP ci sono. Da riportare ${num(pezziBozza)} pezzi di ${bozza.length} articoli.` : 'Tutto in ordine: niente da riportare.';
+  const top = giro.righe.slice(0, 10), podio = top.slice(0, 3), resto = top.slice(3), maxR = Math.max(1, ...resto.map((r) => r.totale));
+  const gradino = (r, pos) => r ? `<button type="button" class="gradino g${pos}" data-a="articolo" data-codice="${esc(r.codice)}"><span class="medaglia">${pos}</span><b>${esc(r.codice)}</b><small>${esc(r.descrizione)}</small><strong>${num(r.totale)}</strong><i></i></button>` : '<span></span>';
   return `
-  <header class="eroe">
-    <div class="eroe-testa"><div><div class="sopra">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]} · <span id="orologio">${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span></div><h1>${saluto}, Andrea</h1></div>${distributorino(giro.mancanti.length ? 'manca' : 'ok')}</div>
-    <div class="anello">
-      <svg viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="gr-anello" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--a1)"/><stop offset=".55" style="stop-color:var(--a2)"/><stop offset="1" style="stop-color:var(--a3)"/></linearGradient></defs>
-        <circle class="base" cx="80" cy="80" r="70"/><circle class="val" cx="80" cy="80" r="70" style="stroke-dasharray:${CM.toFixed(1)};--fine:${(CM * (1 - quota)).toFixed(1)};stroke-dashoffset:${(CM * (1 - quota)).toFixed(1)}"/></svg>
-      <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>pieno</span><small>${num(liv.ora)} di ${num(liv.pieno)} pezzi<br>mancano ${num(liv.manca)}</small>`
-        : `<strong>${zipOk}/${giro.giorni.length}</strong><span>ZIP del giro</span>`}</div>
-    </div>
-    <button type="button" class="stampa" data-a="rif-passo" data-v="prepara"><b data-conta="${pezziBozza}">${num(pezziBozza)}</b><span>pezzi da riportare<small>${bozza.length} articoli · apri il rifornimento</small></span>${ico.freccia}</button>
+  <header class="saluto">
+    <div class="sopra">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]} · <span id="orologio">${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span></div>
+    <h1>${saluto}, Andrea</h1>
+    <p class="frase ${manc.length ? 'rossa' : ''}">${frase}</p>
   </header>
+  <section class="vetrina">
+    <div class="vetrina-luce"></div>
+    ${distributoreGrande(liv.pct, manc.length, pezziBozza)}
+    <div class="vetrina-dati">
+      <div><span>Pieno</span><strong data-conta="${liv.pct ?? 0}">${liv.pct ?? 0}%</strong><small>${num(liv.ora)} di ${num(liv.pieno)} pezzi</small></div>
+      <div class="barra-pieno"><i style="width:${liv.pct ?? 0}%"></i></div>
+      <button type="button" class="riporta" data-a="rif-passo" data-v="prepara"><strong data-conta="${pezziBozza}">${num(pezziBozza)}</strong><span>da riportare<small>${bozza.length} articoli ›</small></span></button>
+    </div>
+  </section>
   ${cartaDrive()}
   ${listaCaricamento()}
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
-  <div class="widget-griglia">
-    <button type="button" class="wid" ${zu ? `data-a="zip" data-nome="${esc(zu.nome)}"` : ''}>
-      <span class="wid-tit">Ultimo ZIP</span>
-      ${zu ? `<strong>${isoIta(zu.al || zu.dal).slice(0, 5)}</strong><span class="wid-sotto">${GIORNI[new Date((zu.al || zu.dal) + 'T12:00').getDay()]} · ${num(zd.pezzi)} pezzi</span>
-        <span class="wid-stato ${zu.completo === false ? 'arancio' : 'verde'}">${zu.completo === false ? '! da controllare' : '✓ completo'}</span>` : '<span class="wid-sotto">nessuno</span>'}
-    </button>
-    <button type="button" class="wid" data-a="vedi-riordino">
-      <span class="wid-tit">Da riordinare</span>
-      <strong style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</strong>
-      <span class="wid-sotto">${riordino.length ? riordino.slice(0, 2).map((p) => esc(p.codice)).join(' · ') + (riordino.length > 2 ? '…' : '') : 'tutto a posto'}</span>
-    </button>
-    <div class="wid largo">
-      <div class="wid-riga"><span class="wid-tit">Più prelevati</span><button type="button" class="link" data-a="pagina-diretta" data-pagina="prelievi">dal ${isoIta(giro.inizio).slice(0, 5)} · ${num(giro.totale)} pz ›</button></div>
-      ${top.length ? `<div class="top">${top.map((r, k) => `<button type="button" class="top-r" data-a="articolo" data-codice="${esc(r.codice)}"><span class="pos">${k + 1}</span><span class="top-n"><b>${esc(r.codice)}</b><small>${esc(r.descrizione)}</small></span><span class="top-b"><i style="--w:${Math.round(r.totale * 100 / maxTop)}%"></i></span><b class="top-q">${num(r.totale)}</b></button>`).join('')}</div>` : '<span class="wid-sotto">Nessun prelievo dall\'ultimo rifornimento</span>'}
-    </div>
-    ${strisciaZip()}
+  <div class="mini3">
+    <button type="button" class="mini" ${zu ? `data-a="zip" data-nome="${esc(zu.nome)}"` : ''}><span class="mi">📦</span><small>Ultimo ZIP</small><b>${zu ? gg(zu.al || zu.dal) : '—'}</b><em class="${zu?.completo === false ? 'arancio' : 'verde'}">${zu ? (zu.completo === false ? 'da controllare' : `✓ ${num(zd.pezzi)} pz`) : ''}</em></button>
+    <button type="button" class="mini" data-a="vedi-riordino"><span class="mi">🛒</span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? 'articoli' : 'tutto ok'}</em></button>
+    <button type="button" class="mini ${manc.length ? 'allarme' : ''}" data-a="pagina-diretta" data-pagina="zipimportati"><span class="mi">${manc.length ? '⚠️' : '✅'}</span><small>ZIP mancanti</small><b style="color:${manc.length ? 'var(--rosso)' : 'var(--verde)'}">${manc.length}</b><em>${manc.length ? manc.map(gg).join(' · ') : 'nessuno'}</em></button>
   </div>
+  <section class="wid largo">
+    <div class="wid-riga"><span class="wid-tit">Più prelevati</span><button type="button" class="link" data-a="rif-passo" data-v="">dal ${gg(giro.inizio)} · ${num(giro.totale)} pz ›</button></div>
+    ${podio.length ? `<div class="podio">${gradino(podio[1], 2)}${gradino(podio[0], 1)}${gradino(podio[2], 3)}</div>
+      ${resto.length ? `<div class="top">${resto.map((r, k) => `<button type="button" class="top-r" data-a="articolo" data-codice="${esc(r.codice)}"><span class="pos">${k + 4}</span><span class="top-n"><b>${esc(r.codice)}</b><small>${esc(r.descrizione)}</small></span><span class="top-b"><i style="--w:${Math.round(r.totale * 100 / maxR)}%"></i></span><b class="top-q">${num(r.totale)}</b></button>`).join('')}</div>` : ''}`
+      : '<span class="wid-sotto">Nessun prelievo dall\'ultimo rifornimento</span>'}
+  </section>
+  ${strisciaZip()}
   `;
 }
 
