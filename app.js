@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.4';
+const VERSIONE = '2.5';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -186,7 +186,19 @@ function aspetto() {
   <div class="colori-scelta"><button type="button" aria-pressed="${!eNotte()}" data-a="pref-modo" data-v="giorno"><span class="campione"><i style="background:#ff6fb5"></i><i style="background:#b44dff"></i></span><b>Rosa e viola</b></button></div>
   <h2>Colori della notte</h2>
   <div class="colori-scelta">${COLORI_NOTTE.map(([k, t, c1, c2]) => `<button type="button" data-a="pref-colori" data-v="${k}" aria-pressed="${col === k}"><span class="campione"><i style="background:${c1}"></i><i style="background:${c2}"></i></span><b>${t}</b></button>`).join('')}</div>
-  <small class="tenue">Toccando un colore della notte lo vedi subito.</small>`;
+  <small class="tenue">Toccando un colore della notte lo vedi subito.</small>
+  <h2>Numerino sull'icona</h2>
+  <div class="carta"><small class="tenue">Il numero rosso sull'icona dell'app conta i giorni senza ZIP, le righe da abbinare e gli ammanchi del controllo sul posto. L'iPhone lo mostra solo se dai il permesso alle notifiche (l'app non ti manda notifiche).</small>
+    ${!('Notification' in window) ? '<b class="tenue">Su questo dispositivo non c\'è: apri l\'app dall\'icona sulla schermata Home.</b>' : Notification.permission === 'granted' ? '<b style="color:var(--verde)">Attivo</b>' : Notification.permission === 'denied' ? '<b style="color:var(--arancio)">Permesso negato: riattivalo in Impostazioni iPhone → Notifiche → Distributore</b>' : '<button type="button" class="btn secondario" data-a="attiva-numerino">Attiva il numerino</button>'}</div>`;
+}
+
+// numerino rosso sull'icona: giorni senza ZIP + righe da abbinare + ammanchi da guardare
+function aggiornaNumerino() {
+  try {
+    if (!g || !('setAppBadge' in navigator)) return;
+    const n = g.prelieviGiro().mancanti.length + g.s.sospese.length + g.s.esiti_controlli.filter((e) => !e.visto && e.ammanchi.length).length;
+    if (n) navigator.setAppBadge(n).catch(() => {}); else navigator.clearAppBadge?.().catch(() => {});
+  } catch { /* niente */ }
 }
 
 function chiudiSplash() {
@@ -213,6 +225,7 @@ function disegna() {
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
+  aggiornaNumerino();
   if (document.body.classList.contains('intro') || !disegna.fatto) { disegna.fatto = true; contaNumeri(); }
   if (ui.focus) { const el = document.getElementById(ui.focus); if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); } ui.focus = null; }
 }
@@ -294,7 +307,7 @@ function controllo() {
   const codici = Object.keys(g.s.prodotti).sort();
   const righe = Object.entries(c.righe);
   return `<h1>Controllo sul posto</h1>
-  <div class="tenue">Al distributore segna i pezzi che mancano. Li tolgo subito e li metto nel rifornimento; quando arriva lo ZIP di quel giorno confronto e trovo l'eventuale ammanco, senza togliere niente due volte.</div>
+  <div class="tenue">Al distributore segna i pezzi che mancano. Non li tolgo dal distributore: li aggiungo subito al prossimo rifornimento. Quando arriva lo ZIP di quel giorno, lo ZIP scala il distributore come sempre e dove c'è il prelievo non lo aggiungo una seconda volta; i pezzi senza movimento nello ZIP sono l'ammanco: restano nel rifornimento e li tolgo dal distributore.</div>
   <div class="carta">
     <div class="campo"><label for="ctrl-data">Giorno del controllo</label><input id="ctrl-data" type="date" value="${c.data}" data-a-cambio="ctrl-data"></div>
   </div>
@@ -307,7 +320,7 @@ function controllo() {
   <div class="ctrl-barra"><button type="button" class="btn" data-a="ctrl-salva" ${righe.length ? '' : 'disabled'}>${testoCtrl()}</button></div>
   </div>
   ${attesa.length ? `<h2>In attesa dello ZIP</h2>${attesa.map((a) => `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(a.data + 'T12:00').getDay()]} ${isoIta(a.data)}</b><span class="tenue">${a.pezzi} pezzi</span></div>
-    ${a.righe.map((r) => `<small><b>${esc(r.codice)}</b> mancanti ${r.mancanti} · tolti ${r.scalati}${r.assorbiti ? ` · rimessi dagli ZIP ${r.assorbiti}` : ''}</small>`).join('')}
+    ${a.righe.map((r) => `<small><b>${esc(r.codice)}</b> segnati ${r.mancanti}${r.assorbiti ? ` · ${r.assorbiti} già trovati nello ZIP` : ''}</small>`).join('')}
     <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="ctrl-modifica" data-data="${a.data}">Modifica</button><button type="button" class="btn pericolo piccolo" data-a="ctrl-elimina" data-data="${a.data}">Elimina</button></div></div>`).join('')}` : ''}
   ${g.s.esiti_controlli.length ? `<h2>Controlli chiusi</h2><div class="lista">${g.s.esiti_controlli.slice().reverse().map((x) => `<div class="voce"><span class="corpo"><b>${isoIta(x.data)}</b><small>${x.coperti} spiegati${x.ammanchi.length ? ` · ammanchi: ${x.ammanchi.map((a) => `${esc(a.codice)} −${a.pezzi}`).join(', ')}` : ' · nessun ammanco'}</small></span></div>`).join('')}</div>` : ''}`;
 }
@@ -973,6 +986,7 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
   'pref-modo': (el) => { try { localStorage.setItem('pref_modo', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();
     if (!eNotte()) { document.documentElement.setAttribute('data-colori', el.dataset.v); avviso('Anteprima della notte: adesso è giorno, torna rosa fra 3 secondi.'); clearTimeout(applicaColori.t); applicaColori.t = setTimeout(applicaColori, 3000); } },
@@ -984,7 +998,7 @@ const azioni = {
   'ctrl-meno': (el) => ctrlCambia(el.dataset.codice, -1),
   'ctrl-salva': () => {
     const c = ui.controllo;
-    cambia(() => g.salvaControllo(c.data, c.righe), (r) => `Controllo salvato: ${r.tolti} pezzi tolti dal distributore e messi nel rifornimento.${r.esiti.length ? ' Confrontato subito con lo ZIP già arrivato.' : ''}`)
+    cambia(() => g.salvaControllo(c.data, c.righe), (r) => `Controllo salvato: ${r.aggiunti} pezzi aggiunti al rifornimento. Il distributore lo scala lo ZIP di quel giorno.${r.esiti.length ? ' Confrontato subito con lo ZIP già arrivato.' : ''}`)
       .then((r) => { if (r) ui.controllo = { data: c.data, righe: {} }; disegna(); });
   },
   'ctrl-modifica': (el) => { const d = el.dataset.data; ui.controllo = { data: d, righe: Object.fromEntries(g.s.controlli.filter((x) => x.data === d && x.stato === 'attesa').map((x) => [x.codice, x.mancanti])) }; disegna(); window.scrollTo(0, 0); },

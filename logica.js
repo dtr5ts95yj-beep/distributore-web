@@ -352,12 +352,12 @@ export class Gestionale {
     return { giorni, righe, totale: righe.reduce((t, r) => t + r.totale, 0), perGiorno: giorni.map((_, i) => righe.reduce((t, r) => t + r.giorni[i], 0)) };
   }
 
-  // ------------------------------------------------------------ CONTROLLO SUL POSTO (come il programma)
-  // 1. al salvataggio i mancanti si tolgono SUBITO dal distributore e vanno nel rifornimento, meno quelli
-  //    già tolti dagli ZIP importati dopo l'ultimo rifornimento fino a quel giorno;
-  // 2. quando arriva uno ZIP con prelievi di quel giorno (o prima), quei prelievi erano già compresi nei
-  //    pezzi tolti: si rimettono (fino ai pezzi tolti), così nulla si toglie due volte;
-  // 3. con lo ZIP di quel giorno il controllo si chiude: quello che nessuno ZIP ha spiegato è l'ammanco.
+  // ------------------------------------------------------------ CONTROLLO SUL POSTO
+  // 1. al salvataggio i pezzi segnati NON si tolgono dal distributore: mancano già, si aggiungono solo al rifornimento;
+  // 2. quando arriva lo ZIP di quel giorno, lo ZIP scarica il distributore come sempre; per gli articoli segnati
+  //    i suoi prelievi sono gli stessi pezzi già messi nel rifornimento, quindi lì non si aggiungono una seconda volta;
+  // 3. con lo ZIP di quel giorno il controllo si chiude: i pezzi segnati senza movimento nello ZIP sono l'ammanco,
+  //    restano nel rifornimento e si tolgono dal distributore (mancano davvero).
   _bozzaMeno(codice, q) {
     const b = this.s.bozza.find((x) => x.codice === codice);
     if (!b) return;
@@ -393,23 +393,20 @@ export class Gestionale {
     for (const [c] of pulite) if (!this.s.prodotti[c]) throw new Error(`L'articolo ${c} non esiste.`);
     const ora = adessoIso(), gg = isoIta(giorno);
     this._annullaControllo(giorno, ora);
-    let tolti = 0;
+    let aggiunti = 0;
     for (const [codice, mancanti] of pulite) {
-      const gia = this._prelevatiFinoA(giorno, codice);
-      const scala = Math.max(0, mancanti - gia);
-      if (scala) {
-        const p = this.s.prodotti[codice], prima = p.quantita;
-        p.quantita -= scala;
-        this._mov('CONTROLLO_POSTO', codice, p.descrizione, -scala, prima, p.quantita, `Controllo sul posto del ${gg}`, `Mancanti ${mancanti}, già tolti dagli ZIP ${gia}: tolti subito ${scala}`, ora);
-        this._bozzaPiu(codice, scala);
-        tolti += scala;
-      }
-      this.s.controlli.push({ data: giorno, codice, mancanti, scalati: scala, assorbiti: 0, stato: 'attesa', salvato_il: ora });
+      const p = this.s.prodotti[codice];
+      this._bozzaPiu(codice, mancanti);
+      this._mov('CONTROLLO_POSTO', codice, p.descrizione, 0, p.quantita, p.quantita, `Controllo sul posto del ${gg}`, `Segnati ${mancanti} mancanti: aggiunti al rifornimento, il distributore lo scala lo ZIP`, ora);
+      this.s.controlli.push({ data: giorno, codice, mancanti, aggiunti: mancanti, assorbiti: 0, stato: 'attesa', salvato_il: ora });
+      aggiunti += mancanti;
     }
+    // se lo ZIP di quel giorno c'è già, confronto subito
+    const z = this._zipDelGiorno(giorno);
+    if (z) this._assorbiControlli(z.nome, z.dal, ora, z.al);
     const esiti = this._chiudiControlli(ora);
-    this.riempiDaMagazzino('Dopo il controllo sul posto');
     this._tocca();
-    return { articoli: pulite.length, tolti, esiti };
+    return { articoli: pulite.length, tolti: 0, aggiunti, esiti };
   }
 
   eliminaControllo(giorno) { this._annullaControllo(giorno, adessoIso()); this._tocca(); }
@@ -417,28 +414,35 @@ export class Gestionale {
   _annullaControllo(giorno, ora) {
     const righe = this.s.controlli.filter((c) => c.data === giorno && c.stato === 'attesa');
     for (const r of righe) {
-      const netto = (r.scalati || 0) - (r.assorbiti || 0);
-      if (!netto) continue;
-      const p = this.s.prodotti[r.codice], prima = p.quantita;
-      p.quantita += netto;
-      this._bozzaMeno(r.codice, netto);
-      this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, netto, prima, p.quantita, `Controllo sul posto del ${isoIta(giorno)}`, 'Controllo corretto o eliminato: pezzi rimessi', ora);
+      const p = this.s.prodotti[r.codice];
+      if (r.aggiunti != null) {
+        const netto = (r.aggiunti || 0) - (r.assorbiti || 0);   // la parte che lo ZIP ha già coperto resta (è dello ZIP)
+        if (netto > 0) this._bozzaMeno(r.codice, netto);
+        if (p) this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, 0, p.quantita, p.quantita, `Controllo sul posto del ${isoIta(giorno)}`, 'Controllo cambiato o eliminato: tolti dal rifornimento', ora);
+      } else if (p) {   // controlli salvati con la regola vecchia (pezzi tolti subito)
+        const netto = (r.scalati || 0) - (r.assorbiti || 0);
+        if (netto) { const prima = p.quantita; p.quantita += netto; this._bozzaMeno(r.codice, netto); this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, netto, prima, p.quantita, `Controllo sul posto del ${isoIta(giorno)}`, 'Controllo eliminato: pezzi rimessi', ora); }
+      }
     }
     this.s.controlli = this.s.controlli.filter((c) => !(c.data === giorno && c.stato === 'attesa'));
   }
 
-  _assorbiControlli(nomeZip, dal, ora) {
+  /** Arriva uno ZIP: per gli articoli segnati nel controllo di uno dei suoi giorni, i suoi prelievi erano già nel rifornimento. */
+  _assorbiControlli(nomeZip, dal, ora, al) {
     if (!dal) return;
+    const fine = al || dal;
     for (const r of this.s.controlli) {
-      if (r.stato !== 'attesa' || !(r.scalati > (r.assorbiti || 0)) || r.data < dal) continue;
+      if (r.stato !== 'attesa' || r.data < dal || r.data > fine) continue;
+      const base = r.aggiunti != null ? r.aggiunti : (r.scalati || 0);
+      if (!(base > (r.assorbiti || 0))) continue;
       const pre = this.s.movimenti.filter((m) => m.tipo === 'SCARICO_ZIP' && m.origine === nomeZip && m.codice === r.codice).reduce((t, m) => t - Number(m.quantita || 0), 0);
       const gia = (r.da_zip || {})[nomeZip] || 0;
-      const assorbi = Math.min(r.scalati - (r.assorbiti || 0), pre - gia);
+      const assorbi = Math.min(base - (r.assorbiti || 0), pre - gia);
       if (assorbi <= 0) continue;
-      const p = this.s.prodotti[r.codice], prima = p.quantita;
-      p.quantita += assorbi;
+      const p = this.s.prodotti[r.codice];
       this._bozzaMeno(r.codice, assorbi);
-      this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, assorbi, prima, p.quantita, nomeZip, `Già tolti dal controllo sul posto del ${isoIta(r.data)}: non si tolgono due volte`, ora);
+      if (r.aggiunti == null) { const prima = p.quantita; p.quantita += assorbi; this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, assorbi, prima, p.quantita, nomeZip, `Già tolti dal controllo sul posto del ${isoIta(r.data)}`, ora); }
+      else this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, 0, p.quantita, p.quantita, nomeZip, `${assorbi} prelevati nello ZIP: erano già nel rifornimento dal controllo del ${isoIta(r.data)}`, ora);
       r.assorbiti = (r.assorbiti || 0) + assorbi;
       (r.da_zip ||= {})[nomeZip] = gia + assorbi;
     }
@@ -452,15 +456,20 @@ export class Gestionale {
       if (!z) continue;
       let coperti = 0; const ammanchi = [];
       for (const r of this.s.controlli.filter((c) => c.data === giorno && c.stato === 'attesa')) {
-        const amm = (r.scalati || 0) - (r.assorbiti || 0);
+        const base = r.aggiunti != null ? r.aggiunti : (r.scalati || 0);
+        const amm = base - (r.assorbiti || 0);
         const pre = r.mancanti - amm;
-        if (amm > 0) ammanchi.push({ codice: r.codice, descrizione: (this.s.prodotti[r.codice] || {}).descrizione || '', pezzi: amm, mancanti: r.mancanti, prelevati: pre });
-        else coperti++;
+        if (amm > 0) {
+          ammanchi.push({ codice: r.codice, descrizione: (this.s.prodotti[r.codice] || {}).descrizione || '', pezzi: amm, mancanti: r.mancanti, prelevati: pre });
+          // mancano davvero ma nessuno ZIP li ha scaricati: si tolgono dal distributore (nel rifornimento ci sono già)
+          const p = this.s.prodotti[r.codice];
+          if (p && r.aggiunti != null) { const prima = p.quantita; p.quantita -= amm; this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, -amm, prima, p.quantita, z.nome, `Ammanco del controllo del ${isoIta(giorno)}: ${amm} mancanti senza prelievo nello ZIP`, ora); }
+        } else coperti++;
         Object.assign(r, { stato: 'chiuso', prelevati: pre, ammanco: amm, zip: z.nome, chiuso_il: ora });
       }
       esiti.push({ data: giorno, zip: z.nome, coperti, ammanchi, visto: false });
     }
-    if (esiti.length) this.s.esiti_controlli = [...this.s.esiti_controlli, ...esiti].slice(-20);
+    if (esiti.length) { this.s.esiti_controlli = [...this.s.esiti_controlli, ...esiti].slice(-20); this.riempiDaMagazzino('Dopo il controllo sul posto'); }
     return esiti;
   }
 
@@ -542,15 +551,15 @@ export class Gestionale {
         if (!this.s.consumi[giorno][codice]) delete this.s.consumi[giorno][codice];
       }
     }
-    // controllo sul posto: i pezzi che questo ZIP aveva rimesso tornano tolti, e i controlli chiusi da lui si riaprono
-    for (const m of this.s.movimenti.filter((x) => x.origine === nome && x.tipo === 'CONTROLLO_POSTO')) {
+    // controllo sul posto: si disfa quello che questo ZIP aveva fatto e i controlli chiusi da lui si riaprono
+    for (const m of this.s.movimenti.filter((x) => x.origine === nome && x.tipo === 'CONTROLLO_POSTO' && Number(x.quantita))) {
       const p = this.s.prodotti[m.codice]; if (!p) continue;
       const prima = p.quantita; p.quantita -= m.quantita;
-      this._mov('CONTROLLO_POSTO', m.codice, p.descrizione, -m.quantita, prima, p.quantita, nome, 'ZIP annullato: i pezzi del controllo tornano tolti', ora);
-      this._bozzaPiu(m.codice, m.quantita);
+      this._mov('CONTROLLO_POSTO', m.codice, p.descrizione, -m.quantita, prima, p.quantita, nome, 'ZIP annullato: si disfa il confronto col controllo sul posto', ora);
+      if (m.quantita > 0) this._bozzaPiu(m.codice, m.quantita);   // regola vecchia
     }
     for (const c of this.s.controlli) {
-      if (c.da_zip && c.da_zip[nome]) { c.assorbiti = Math.max(0, (c.assorbiti || 0) - c.da_zip[nome]); delete c.da_zip[nome]; }
+      if (c.da_zip && c.da_zip[nome]) { if (c.aggiunti != null) this._bozzaPiu(c.codice, c.da_zip[nome]); c.assorbiti = Math.max(0, (c.assorbiti || 0) - c.da_zip[nome]); delete c.da_zip[nome]; }
       if (c.stato === 'chiuso' && c.zip === nome) Object.assign(c, { stato: 'attesa', zip: '', prelevati: null, ammanco: null, chiuso_il: '' });
     }
     this.s.esiti_controlli = this.s.esiti_controlli.filter((e) => e.zip !== nome);
@@ -713,7 +722,7 @@ export class Gestionale {
     const completo = !letto.errori.length && pezziPdf === pezzi + pezziSospesi + ignorati;
     this.s.zip.push({ nome: letto.nome, sha: letto.sha, dal: letto.dal, al: letto.al, importato_il: ora, righe: letto.righe.length,
       pezzi, pezzi_pdf: pezziPdf, sospesi: pezziSospesi, ignorati, errori: letto.errori, completo, dettaglio, drive: driveId, consumi: this._consumiZip });
-    this._assorbiControlli(letto.nome, letto.dal, ora);
+    this._assorbiControlli(letto.nome, letto.dal, ora, letto.al);
     const esitiControlli = this._chiudiControlli(ora);
     this.riempiDaMagazzino('Dopo lo scarico degli ZIP');
     this._tocca();
