@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.0';
+const VERSIONE = '2.1';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -318,10 +318,12 @@ function riepilogo() {
   ${r.sotto_scorta ? `<div class="carta">Adesso ${r.sotto_scorta} ${r.sotto_scorta === 1 ? 'articolo è' : 'articoli sono'} sotto scorta. <button type="button" class="btn vuoto piccolo" data-a="vedi-sotto">Vedi</button></div>` : ''}`;
 }
 
+// quanto è pieno (distributore + magazzino) rispetto a subito dopo il rifornimento: i pezzi da riportare sono il vuoto
 function livelloMagazzino() {
-  let minimo = 0, coperti = 0;
-  for (const p of g.elenco()) if (p.scorta_minima > 0) { minimo += p.scorta_minima; coperti += Math.max(0, Math.min(p.disponibile, p.scorta_minima)); }
-  return { minimo, coperti, pct: minimo ? Math.round(coperti * 100 / minimo) : null };
+  const ora = g.elenco().reduce((t, p) => t + Math.max(0, p.quantita) + Math.max(0, p.magazzino || 0), 0);
+  const manca = g.s.bozza.reduce((t, b) => t + (b.quantita > 0 ? b.quantita : 0), 0);
+  const pieno = ora + manca;
+  return { ora, manca, pieno, pct: pieno ? Math.floor(ora * 100 / pieno) : null };
 }
 
 function oggi() {
@@ -350,7 +352,7 @@ function oggi() {
     <div class="anello">
       <svg viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="gr-anello" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--a1)"/><stop offset=".55" style="stop-color:var(--a2)"/><stop offset="1" style="stop-color:var(--a3)"/></linearGradient></defs>
         <circle class="base" cx="80" cy="80" r="70"/><circle class="val" cx="80" cy="80" r="70" style="stroke-dasharray:${CM.toFixed(1)};--fine:${(CM * (1 - quota)).toFixed(1)};stroke-dashoffset:${(CM * (1 - quota)).toFixed(1)}"/></svg>
-      <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>livello scorte</span><small>${num(liv.coperti)} di ${num(liv.minimo)} pezzi minimi</small>`
+      <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>pieno</span><small>${num(liv.ora)} di ${num(liv.pieno)} pezzi · mancano ${num(liv.manca)}</small>`
         : `<strong>${zipOk}/${giro.giorni.length}</strong><span>ZIP del giro</span>`}</div>
     </div>
     <button type="button" class="stampa" data-scheda="rifornimento"><b data-conta="${pezziBozza}">${num(pezziBozza)}</b><span>pezzi da riportare<small>${bozza.length} articoli · apri il rifornimento</small></span>${ico.freccia}</button>
