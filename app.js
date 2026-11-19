@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '3.2';
+const VERSIONE = '3.4';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -163,7 +163,12 @@ setInterval(() => { const o = document.getElementById('orologio'); if (o) o.text
 // ---------- colori: Giorno = rosa e viola, Notte = coppia scelta; Automatico cambia da solo alle 7 e alle 19
 const COLORI_NOTTE = [['grafite', 'Grafite e azzurro', '#5ac8fa', '#6e7f99'], ['verdeblu', 'Verde e blu', '#34d399', '#0a84ff'], ['arancioblu', 'Arancio e blu notte', '#ff9f0a', '#3b82f6'], ['smeraldo', 'Smeraldo e oro', '#10b981', '#f5b301'], ['indaco', 'Indaco e lime', '#818cf8', '#a3e635']];
 const pref = (k, d) => { try { return localStorage.getItem('pref_' + k) || d; } catch { return d; } };
-function eNotte() { const m = pref('modo', 'auto'); if (m !== 'auto') return m === 'notte'; const h = new Date().getHours(); return h < Number(pref('ora_giorno', '7')) || h >= Number(pref('ora_notte', '19')); }
+function eNotte() {   // Chiaro = giorno, Scuro = notte, Automatico = come l'iPhone
+  const t = pref('tema', 'auto');
+  if (t === 'chiaro') return false;
+  if (t === 'scuro') return true;
+  try { return matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; }
+}
 function applicaColori() {
   const notte = eNotte(), coppia = COLORI_NOTTE.some(([k]) => k === pref('colori', 'grafite')) ? pref('colori', 'grafite') : 'grafite';
   const r = document.documentElement;
@@ -174,19 +179,17 @@ function applicaColori() {
 applicaColori();
 setInterval(applicaColori, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) applicaColori(); });
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { applicaColori(); if (g) disegna(); }); } catch { /* niente */ }
 
 function aspetto() {
-  const modo = pref('modo', 'auto'), col = pref('colori', 'grafite');
-  const seg = (v, t) => `<button type="button" data-a="pref-modo" data-v="${v}" aria-pressed="${modo === v}">${t}</button>`;
+  const col = pref('colori', 'grafite');
   return `<h1>Aspetto e colori</h1>
-  <div class="tenue">Di giorno l'app è rosa e viola. Di sera passa alla modalità notte, più scura, con i colori che scegli qui sotto.</div>
-  <div class="carta"><b>Quando usare la notte</b><div class="segmenti">${seg('auto', 'Automatico')}${seg('giorno', 'Sempre giorno')}${seg('notte', 'Sempre notte')}</div>
-    ${modo === 'auto' ? `<div class="griglia2"><div class="campo"><label for="ora-g">Giorno dalle</label><select id="ora-g" data-a-cambio="ora-giorno">${[5, 6, 7, 8, 9].map((h) => `<option value="${h}" ${pref('ora_giorno', '7') == h ? 'selected' : ''}>${h}:00</option>`).join('')}</select></div>
-      <div class="campo"><label for="ora-n">Notte dalle</label><select id="ora-n" data-a-cambio="ora-notte">${[17, 18, 19, 20, 21, 22].map((h) => `<option value="${h}" ${pref('ora_notte', '19') == h ? 'selected' : ''}>${h}:00</option>`).join('')}</select></div></div>
-      <small class="tenue">Adesso è ${eNotte() ? '<b>notte</b>' : '<b>giorno</b>'}.</small>` : ''}</div>
-  <h2>Giorno</h2>
-  <div class="colori-scelta"><button type="button" aria-pressed="${!eNotte()}" data-a="pref-modo" data-v="giorno"><span class="campione"><i style="background:#ff6fb5"></i><i style="background:#b44dff"></i></span><b>Rosa e viola</b></button></div>
-  <h2>Colori della notte</h2>
+  <div class="tenue">Chiaro è rosa e viola, Scuro usa i colori della notte che scegli qui sotto. Automatico fa come l'iPhone (Impostazioni → Schermo e luminosità): se lì hai Automatico, diventa scura al tramonto.</div>
+  <div class="carta"><b>Aspetto</b><div class="segmenti">${[['chiaro', 'Chiaro'], ['scuro', 'Scuro'], ['auto', 'Automatico']].map(([v, t]) => `<button type="button" data-a="pref-tema" data-v="${v}" aria-pressed="${pref('tema', 'auto') === v}">${t}</button>`).join('')}</div>
+    <small class="tenue">${pref('tema', 'auto') === 'auto' ? `Automatico segue l'iPhone: adesso è ${eNotte() ? '<b>scuro</b>' : '<b>chiaro</b>'}.` : pref('tema', 'auto') === 'scuro' ? 'Sempre scuro, con i colori della notte.' : 'Sempre chiaro, rosa e viola.'}</small></div>
+  <h2>Chiaro</h2>
+  <div class="colori-scelta"><button type="button" aria-pressed="${!eNotte()}" disabled><span class="campione"><i style="background:#ff6fb5"></i><i style="background:#b44dff"></i></span><b>Rosa e viola</b></button></div>
+  <h2>Colori dello scuro</h2>
   <div class="colori-scelta">${COLORI_NOTTE.map(([k, t, c1, c2]) => `<button type="button" data-a="pref-colori" data-v="${k}" aria-pressed="${col === k}"><span class="campione"><i style="background:${c1}"></i><i style="background:${c2}"></i></span><b>${t}</b></button>`).join('')}</div>
   <small class="tenue">Toccando un colore della notte lo vedi subito.</small>
   <h2>Numerino sull'icona</h2>
@@ -609,7 +612,24 @@ function storico() {
 }
 
 function altro() {
-  const voce = (pag, titolo, sotto) => `<button type="button" class="voce" data-a="pagina" data-pagina="${pag}"><span class="corpo"><b>${titolo}</b><small>${sotto}</small></span>${ico.freccia}</button>`;
+  const ICONE = {
+    controllo: ['#ff5f8f', '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
+    prelievi: ['#ff9f0a', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
+    riepilogo: ['#af52de', '<path d="M3 4h18v16H3z"/><path d="M7 15l3-3 3 2 4-5"/>'],
+    storico: ['#5e5ce6', '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'],
+    magazzino: ['#a2845e', '<path d="M3 9l9-5 9 5v11H3z"/><path d="M7 20v-7h10v7M7 16h10"/>'],
+    inventario: ['#30b0c7', '<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="M8 12h8M8 16h5"/>'],
+    zipimportati: ['#34c759', '<path d="M4 4h12l4 4v12H4z"/><path d="M10 4v4M10 10v2M10 14v2"/>'],
+    storicoimporta: ['#64d2ff', '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 20h16"/>'],
+    abbinamenti: ['#ff375f', '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'],
+    barcodeab: ['#bf5af2', '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/>'],
+    impostazioni: ['#0a84ff', '<path d="M7 18a5 5 0 0 1-.5-10A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/>'],
+    ignorate: ['#8e8e93', '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>'],
+    aspetto: ['#ff2d92', '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="#fff"/>'],
+    backup: ['#32d74b', '<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/>'],
+    info: ['#636366', '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'],
+  };
+  const voce = (pag, titolo, sotto) => { const [col, svg] = ICONE[pag] || ['#636366', '']; return `<button type="button" class="voce menu" data-a="pagina" data-pagina="${pag}"><span class="m-ico" style="background:${col}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg></span><span class="corpo"><b>${titolo}</b><small>${sotto}</small></span>${ico.freccia}</button>`; };
   const attesa = g.controlliInAttesa().length;
   const conMag = Object.values(g.s.prodotti).filter((p) => p.magazzino > 0).length;
   return `
@@ -640,7 +660,7 @@ function altro() {
   <div class="lista">
     ${voce('impostazioni', 'Google Drive', drive.collegato ? `Collegato · cartella ${esc(g.s.impostazioni.drive_cartella_nome || '—')}` : 'Non collegato')}
     ${voce('ignorate', 'Descrizioni ignorate', `${g.s.ignorate.length} descrizioni che non conto`)}
-    ${voce('aspetto', 'Aspetto e colori', eNotte() ? `Notte · ${COLORI_NOTTE.find(([k]) => k === pref('colori', 'grafite'))?.[1] || ''}` : 'Giorno · rosa e viola')}
+    ${voce('aspetto', 'Aspetto e colori', `${{ chiaro: 'Chiaro', scuro: 'Scuro', auto: 'Automatico' }[pref('tema', 'auto')] || 'Automatico'} · notte ${COLORI_NOTTE.find(([k]) => k === pref('colori', 'grafite'))?.[1] || ''}`)}
     ${voce('backup', 'Backup e ripristino', drive.collegato ? 'Automatico su Drive · copie nel telefono · file' : 'Copie nel telefono · file')}
     ${voce('info', 'Informazioni', `Versione ${VERSIONE}`)}
   </div>
@@ -1197,6 +1217,7 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'pref-tema': (el) => { try { localStorage.setItem('pref_tema', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'ctrl-barcode': () => modalitaBarcode(),
   'abb-nuovo': () => foglioAbbinamento(),
   'abb-modifica': (el) => foglioAbbinamento({ chiaveA: el.dataset.chiave || '', desc: el.dataset.desc || '', cp: el.dataset.cp || '', art: el.dataset.art || '' }),
@@ -1210,7 +1231,6 @@ const azioni = {
   'togli-bar': (el) => { if (confirm(`Tolgo il barcode ${el.dataset.testo} da ${el.dataset.codice}?`)) cambia(() => g.togliBarcode(el.dataset.codice, el.dataset.testo), 'Barcode tolto.').then(() => foglioArticolo(el.dataset.codice)); },
   'scan': (el) => { const dove = el.dataset.dove; apriLettore((testo) => dopoScan(testo, dove), dove === 'controllo' ? 'Controllo sul posto: inquadra il barcode' : 'Inquadra il barcode'); },
   'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
-  'pref-modo': (el) => { try { localStorage.setItem('pref_modo', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();
     if (!eNotte()) { document.documentElement.setAttribute('data-colori', el.dataset.v); avviso('Anteprima della notte: adesso è giorno, torna rosa fra 3 secondi.'); clearTimeout(applicaColori.t); applicaColori.t = setTimeout(applicaColori, 3000); } },
   'pagina-diretta': (el) => { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; disegna(); window.scrollTo(0, 0); },
@@ -1295,7 +1315,6 @@ document.addEventListener('change', (e) => {
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
   if (t.dataset.aCambio === 'ctrl-data') { ui.controllo.data = t.value; }
-  if (t.dataset.aCambio === 'ora-giorno' || t.dataset.aCambio === 'ora-notte') { try { localStorage.setItem(t.dataset.aCambio === 'ora-giorno' ? 'pref_ora_giorno' : 'pref_ora_notte', t.value); } catch { /* niente */ } applicaColori(); disegna(); }
   if (t.dataset.aCambio === 'st-mese') { ui.meseStorico = t.value; ui.quantiStorico = 150; disegna(); }
   if (t.dataset.file === 'storico' && t.files.length) importaFileStorico([...t.files]);
   if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value ? piuGiorni(t.value, 1) : ''; g.s.aggiornato = new Date().toISOString(); }, `Prelievi presi dal ${isoIta(t.value)}.`);

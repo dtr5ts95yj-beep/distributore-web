@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" href="icone/apple-touch-icon.png">
 <link rel="icon" href="icone/icona-192.png">
 <link rel="stylesheet" href="app.css">
-<script>try{var m=localStorage.getItem('pref_modo')||'auto',h=new Date().getHours(),n=m==='notte'||(m==='auto'&&(h<+(localStorage.getItem('pref_ora_giorno')||7)||h>=+(localStorage.getItem('pref_ora_notte')||19)));if(n)document.documentElement.setAttribute('data-colori',localStorage.getItem('pref_colori')||'grafite')}catch(e){}</script>
+<script>try{var t=localStorage.getItem('pref_tema')||'auto';if(t==='scuro'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.setAttribute('data-colori',localStorage.getItem('pref_colori')||'grafite')}catch(e){}</script>
 <script src="lib/jszip.min.js" defer></script>
 <script src="lib/pdf-lib.min.js" defer></script>
 <script type="module" src="app.js"></script>
