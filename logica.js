@@ -889,6 +889,27 @@ export class Gestionale {
     return out;
   }
 
+  /** Primo giorno di prelievi del giro in corso: il giorno dopo l'ultimo ZIP già riportato (o la partenza). */
+  inizioGiro(oggi = oggiIso()) {
+    const part = this.s.impostazioni.zip_partenza ? piuGiorni(this.s.impostazioni.zip_partenza, -1) : '';
+    const rip = this.s.zip.filter((z) => z.rifornito && !z.eliminato && !z.storico && z.dal);
+    let inizio = rip.length ? piuGiorni(rip.map((z) => z.al || z.dal).sort().pop(), 1) : part;
+    if (part && (!inizio || inizio < part)) inizio = part;
+    return inizio || piuGiorni(oggi, -7);
+  }
+
+  /** Prelievi del giro in corso (dall'ultimo rifornimento a ieri), giorno per giorno e articolo per articolo. */
+  prelieviGiro(oggi = oggiIso()) {
+    const inizio = this.inizioGiro(oggi), ieri = piuGiorni(oggi, -1);
+    const giorni = [];
+    for (let d = inizio; d <= ieri && giorni.length < 90; d = piuGiorni(d, 1)) giorni.push(d);
+    const per = {};
+    let totale = 0;
+    const perGiorno = giorni.map((d) => { let t = 0; for (const [k, q] of Object.entries(this.s.consumi[d] || {})) { if (!q) continue; const r = (per[k] ||= { codice: k, descrizione: this.prodotto(k)?.descrizione || '', totale: 0, giorni: {} }); r.totale += q; r.giorni[d] = (r.giorni[d] || 0) + q; t += q; } totale += t; return t; });
+    const zip = this.s.zip.filter((z) => !z.eliminato && !z.storico && !z.rifornito);
+    return { inizio, fine: ieri, giorni, perGiorno, totale, zip, righe: Object.values(per).sort((a, b) => b.totale - a.totale || a.codice.localeCompare(b.codice)), mancanti: this.giorniMancanti(oggi).filter((d) => d >= inizio) };
+  }
+
   prelevatiSettimana(oggi = oggiIso()) {
     const d = new Date(oggi + 'T12:00:00');
     const lun = piuGiorni(oggi, -((d.getDay() + 6) % 7));

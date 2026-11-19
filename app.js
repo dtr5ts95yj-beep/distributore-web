@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.6';
+const VERSIONE = '1.7';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -177,12 +177,8 @@ function listaCaricamento() {
 
 function strisciaZip() {
   // da rifornimento a rifornimento: dal giorno dopo l'ultimo ZIP già riportato fino a ieri
-  const part = g.s.impostazioni.zip_partenza ? piuGiorni(g.s.impostazioni.zip_partenza, -1) : '';
-  const riportati = g.s.zip.filter((z) => z.rifornito && !z.eliminato && !z.storico && z.dal);
-  let inizio = riportati.length ? piuGiorni(riportati.map((z) => z.al || z.dal).sort().pop(), 1) : part;
-  if (part && (!inizio || inizio < part)) inizio = part;
+  const inizio = g.inizioGiro();
   const ieri = piuGiorni(oggiIso(), -1);
-  if (!inizio) inizio = piuGiorni(ieri, -6);
   const n = Math.max(0, Math.round((new Date(ieri + 'T12:00') - new Date(inizio + 'T12:00')) / 864e5) + 1);
   const giorni = n ? g.giorniZip(Math.min(n, 60)) : [];
   const ultimo = g.s.rifornimenti.length ? g.s.rifornimenti[g.s.rifornimenti.length - 1].data_ora.slice(0, 10) : '';
@@ -256,6 +252,7 @@ function riepilogo() {
 }
 
 function oggi() {
+  const giro = g.prelieviGiro();
   const d = new Date();
   const el = g.elenco();
   const sotto = el.filter((p) => p.sotto || p.negativo);
@@ -271,9 +268,9 @@ function oggi() {
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
   <div class="numeri">
-    <div><span>Prelevati</span><strong style="color:var(--rosa)">${num(g.prelevatiSettimana())}</strong><span>questa sett.</span></div>
+    <div><span>Prelevati</span><strong style="color:var(--rosa)">${num(giro.totale)}</strong><span>dal ${isoIta(giro.inizio).slice(0, 5)}</span></div>
     <div><span>Sotto scorta</span><strong style="color:${sotto.length ? 'var(--arancio)' : 'var(--verde)'}">${sotto.length}</strong><span>articoli</span></div>
-    <div><span>Senza ZIP</span><strong style="color:${mancanti.length ? 'var(--rosso)' : 'var(--verde)'}">${mancanti.length}</strong><span>giorni</span></div>
+    <div><span>Senza ZIP</span><strong style="color:${giro.mancanti.length ? 'var(--rosso)' : 'var(--verde)'}">${giro.mancanti.length}</strong><span>giorni</span></div>
   </div>
   <div class="carta">
     <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">Rifornimento pronto</b></div>
@@ -288,6 +285,7 @@ function oggi() {
 }
 
 function articoli() {
+  const giroArt = Object.fromEntries(g.prelieviGiro().righe.map((r) => [r.codice, r.totale]));
   const q = chiave(ui.cerca);
   const tutti = g.elenco();
   const filtri = { tutti: () => true, sotto: (p) => p.sotto || p.negativo, magazzino: (p) => p.magazzino > 0 };
@@ -305,7 +303,7 @@ function articoli() {
       <span class="testa"><span style="display:flex;flex-direction:column;min-width:0"><b style="font-size:16px">${esc(p.codice)}</b><small class="tenue">${esc(p.descrizione)}</small></span>
       <span class="q">${num(p.quantita)}${c != null ? `<small> / ${num(c)}</small>` : ''}</span></span>
       ${c ? `<span class="barra"><div style="width:${pieno}%"></div></span>` : ''}
-      <span class="piede"><span>Magazzino <b>${num(p.magazzino)}</b> · Totale <b>${num(p.disponibile)}</b>${p.scorta_minima != null ? ` / min. ${num(p.scorta_minima)}` : ''}</span><span>${ultimo}</span></span>
+      <span class="piede"><span>${giroArt[p.codice] ? `Prelevati <b style="color:var(--rosa)">${num(giroArt[p.codice])}</b> · ` : ''}Magazzino <b>${num(p.magazzino)}</b> · Totale <b>${num(p.disponibile)}</b>${p.scorta_minima != null ? ` / min. ${num(p.scorta_minima)}` : ''}</span><span>${ultimo}</span></span>
     </button>`;
   }).join('') : '<div class="vuoto-msg">Nessun articolo.</div>'}`;
 }
@@ -369,18 +367,18 @@ function calendario() {
 }
 
 function prelievi() {
-  const lun = ui.settimana || lunediDi(oggiIso());
-  const w = g.prelieviSettimana(lun);
-  const SIGLE = ['Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa', 'Do'];
+  const w = g.prelieviGiro();
   const max = Math.max(1, ...w.perGiorno);
+  const SIG = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
+  const sig = (d) => `${SIG[new Date(d + 'T12:00').getDay()]} ${Number(d.slice(8))}`;
   return `
-  <h1>Prelievi della settimana</h1>
-  <div class="riga-titolo" style="align-items:center"><button type="button" class="btn vuoto piccolo" data-a="settimana" data-d="-7" aria-label="Settimana prima">‹</button>
-    <b>dal ${isoIta(w.giorni[0]).slice(0, 5)} al ${isoIta(w.giorni[6])}</b><button type="button" class="btn vuoto piccolo" data-a="settimana" data-d="7" aria-label="Settimana dopo">›</button></div>
+  <h1>Prelievi dall'ultimo rifornimento</h1>
+  <div class="tenue">Dal ${isoIta(w.inizio)} a ieri. Quando segni il rifornimento come fatto si riparte da zero: i giri precedenti restano nello storico.</div>
   <div class="carta"><div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:16px">Totale</b><strong style="font-size:28px;color:var(--rosa)">${num(w.totale)} pezzi</strong></div>
-    <div class="grafico sett7">${w.perGiorno.map((q, i) => `<div><span class="v">${q || ''}</span><span class="b" style="height:${Math.round(q * 100 / max)}%"></span><span class="e">${SIGLE[i]}</span></div>`).join('')}</div></div>
+    <small class="tenue">${w.zip.length} ZIP da riportare${w.mancanti.length ? ` · <b style="color:var(--rosso)">mancano ${w.mancanti.length} giorni</b>` : ''}</small>
+    ${w.giorni.length ? `<div class="grafico">${w.giorni.map((d, i) => `<div><span class="v">${w.perGiorno[i] || ''}</span><span class="b" style="height:${Math.round(w.perGiorno[i] * 100 / max)}%"></span><span class="e">${Number(d.slice(8))}</span></div>`).join('')}</div>` : ''}</div>
   <div class="lista">${w.righe.map((r) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(r.codice)}"><span class="corpo"><b>${esc(r.codice)}</b><small class="taglia">${esc(r.descrizione)}</small>
-    <small class="tenue">${r.giorni.map((q, i) => q ? `${SIGLE[i]} ${q}` : '').filter(Boolean).join(' · ')}</small></span><b style="font-size:18px">${num(r.totale)}</b></button>`).join('') || '<div class="vuoto-msg">Nessun prelievo in questa settimana.</div>'}</div>`;
+    <small class="tenue">${Object.entries(r.giorni).map(([d, q]) => `${sig(d)}: ${q}`).join(' · ')}</small></span><b style="font-size:18px">${num(r.totale)}</b></button>`).join('') || '<div class="vuoto-msg">Nessun prelievo dall\'ultimo rifornimento.</div>'}</div>`;
 }
 
 function periodoBozza() {
@@ -428,7 +426,7 @@ function altro() {
   <h2>Ogni giorno</h2>
   <div class="lista">
     ${voce('controllo', 'Controllo sul posto', attesa ? `${attesa} in attesa dello ZIP` : 'Segna i pezzi mancanti al distributore')}
-    ${voce('prelievi', 'Prelievi della settimana', `${num(g.prelevatiSettimana())} pezzi questa settimana, articolo per articolo`)}
+    ${voce('prelievi', 'Prelievi dall\'ultimo rifornimento', `${num(g.prelieviGiro().totale)} pezzi dal ${isoIta(g.inizioGiro())}, articolo per articolo`)}
     ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
   </div>
@@ -491,8 +489,11 @@ function inventario() {
 }
 
 function zipimportati() {
-  const el = g.s.zip.filter((z) => !z.storico).slice().reverse();
-  return `<h1>ZIP importati</h1><div class="tenue">Tocca uno ZIP per vederlo riga per riga. Uno ZIP non ancora riportato si può annullare: i pezzi tornano nel distributore, poi lo puoi reimportare.</div>
+  const tutti = g.s.zip.filter((z) => !z.storico).slice().reverse();
+  const el = ui.zipVecchi ? tutti : tutti.filter((z) => !z.rifornito);
+  const vecchi = tutti.length - tutti.filter((z) => !z.rifornito).length;
+  return `<h1>ZIP importati</h1>
+  <div class="affianca"><button type="button" class="btn ${ui.zipVecchi ? 'vuoto' : 'secondario'} piccolo" data-a="zip-vecchi" data-v="">Dall'ultimo rifornimento</button><button type="button" class="btn ${ui.zipVecchi ? 'secondario' : 'vuoto'} piccolo" data-a="zip-vecchi" data-v="1">Tutti (+${vecchi} già riportati)</button></div><div class="tenue">Tocca uno ZIP per vederlo riga per riga. Uno ZIP non ancora riportato si può annullare: i pezzi tornano nel distributore, poi lo puoi reimportare.</div>
   <div class="lista">${el.map((z) => `<div class="voce"><button type="button" class="corpo" data-a="zip" data-nome="${esc(z.nome)}" style="background:none;border:0;text-align:left;padding:0">
       <b class="taglia" style="${z.eliminato ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(z.nome)}</b>
       <small>${z.dal ? 'prelievi del ' + isoIta(z.dal) : ''} · ${num(g.dettaglioZip(z.nome).pezzi)} pezzi · ${z.eliminato ? '<b style="color:var(--rosso)">annullato</b>' : z.rifornito ? 'riportato' : '<b style="color:var(--verde)">da riportare</b>'}${z.completo === false ? ' · <b style="color:var(--arancio)">da controllare</b>' : ''}</small></button>
@@ -611,6 +612,8 @@ function foglioArticolo(codice, modifica = false) {
       <div class="${sotto ? 'allarme' : ''}"><span>Totale</span><strong>${num(disp)}</strong><small>${p.scorta_minima != null ? `scorta min. ${num(p.scorta_minima)}` : 'scorta ?'}</small></div>
     </div>
     ${c ? `<div class="barra grande"><div style="width:${Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c)))}%"></div></div>` : ''}
+    ${(() => { const r = g.prelieviGiro().righe.find((x) => x.codice === codice); const ini = g.inizioGiro(); return `<div class="carta"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Dall'ultimo rifornimento</b><strong style="font-size:24px;color:var(--rosa)">${num(r ? r.totale : 0)} pezzi</strong></div>
+      <small class="tenue">Prelievi dal ${isoIta(ini)} a ieri${r ? ': ' + Object.entries(r.giorni).map(([d, q]) => `${isoIta(d).slice(0, 5)} ${q}`).join(' · ') : ''}</small></div>`; })()}
     <div class="carta">
       <div>Con i prelievi delle ultime 4 settimane (<b>${num(st.pezzi_28)}</b> pezzi, ${st.media.toLocaleString('it-IT', { maximumFractionDigits: 1 })} al giorno) ti dura ${durata}.</div>
       ${sotto ? '<div style="color:var(--arancio);font-weight:700">Sotto la scorta minima: da riordinare.</div>' : ''}
@@ -831,6 +834,7 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'zip-vecchi': (el) => { ui.zipVecchi = !!el.dataset.v; disegna(); },
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
   'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
   'ctrl-aggiungi': () => {
