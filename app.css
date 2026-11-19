@@ -282,3 +282,20 @@ html[data-colori="indaco"] { --fondo: #0b0b1a; --scheda: #16162e; --scheda2: #1c
 .zipwid .tile.zero .pz { color: var(--tenue); font-size: 10px; }
 .dist.allarme .led { animation: led-rosso 1.1s ease-in-out infinite; } @keyframes led-rosso { 50% { opacity: .35 } }
 .zipwid .tile.manca.ieri { box-shadow: inset 0 0 0 2px #ff3b5c, 0 0 0 2px var(--rosa), 0 0 12px rgba(255, 59, 92, .35); }
+
+/* ---------- barcode */
+.cerca-riga { display: flex; gap: 8px; align-items: stretch; } .cerca-riga .cerca { flex: 1; } .cerca-riga .campo { margin: 0; }
+.scan { width: 48px; flex-shrink: 0; border-radius: 12px; border: 0; background: linear-gradient(135deg, var(--a1), var(--a2)); color: #fff; display: grid; place-items: center; }
+.scan .ico { width: 24px; height: 24px; color: #fff; }
+.lampo { animation: lampo 1.6s ease; } @keyframes lampo { 0%, 40% { background: color-mix(in srgb, var(--rosa) 35%, transparent); } }
+#lettore { position: fixed; inset: 0; z-index: 90; background: #000; }
+#lettore video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.let-velo { position: absolute; inset: 0; display: grid; place-items: center; }
+.let-cornice { position: relative; width: 84%; height: 30%; border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55); border: 3px solid rgba(255, 255, 255, .9); transition: border-color .2s; }
+.let-cornice i { position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: #ff3b5c; box-shadow: 0 0 12px #ff3b5c; animation: laser 1.4s ease-in-out infinite; }
+@keyframes laser { 50% { transform: translateY(-30px); } }
+#lettore.preso .let-cornice { border-color: #6ee7b7; } #lettore.preso .let-cornice i { background: #6ee7b7; box-shadow: 0 0 12px #6ee7b7; }
+.let-testa { position: absolute; top: calc(var(--alto) + 24px); left: 20px; right: 70px; color: #fff; display: flex; flex-direction: column; gap: 4px; }
+.let-testa b { font-size: 18px; } .let-testa small { color: #ddd; }
+.let-stato { position: absolute; bottom: calc(var(--basso) + 40px); left: 0; right: 0; text-align: center; color: #fff; font-weight: 700; padding: 0 20px; }
+.let-chiudi { position: absolute; top: calc(var(--alto) + 18px); right: 16px; width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255, 255, 255, .2); color: #fff; font-size: 20px; }

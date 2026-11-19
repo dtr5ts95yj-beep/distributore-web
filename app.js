@@ -3,9 +3,10 @@ import { Gestionale, TIPI, leggiZip, oggiIso, isoIta, normalizza, chiave, piuGio
 const lunediDi = (iso) => piuGiorni(iso, -((new Date(iso + 'T12:00:00').getDay() + 6) % 7));
 import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
+import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.5';
+const VERSIONE = '2.6';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -67,6 +68,7 @@ function distributorino(stato) {
 }
 
 const ico = {
+  barcode: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>',
   aggiorna: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>',
   freccia: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;color:var(--tenue)"><path d="m9 5 7 7-7 7"/></svg>',
   ok: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--verde);width:28px;height:28px"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>',
@@ -311,7 +313,8 @@ function controllo() {
   <div class="carta">
     <div class="campo"><label for="ctrl-data">Giorno del controllo</label><input id="ctrl-data" type="date" value="${c.data}" data-a-cambio="ctrl-data"></div>
   </div>
-  <div class="campo"><input id="ctrl-cerca" type="search" placeholder="Cerca codice o descrizione…" autocomplete="off" aria-label="Cerca articolo"></div>
+  <div class="cerca-riga"><div class="campo" style="flex:1"><input id="ctrl-cerca" type="search" placeholder="Cerca codice o descrizione…" autocomplete="off" aria-label="Cerca articolo"></div>
+    <button type="button" class="scan" data-a="scan" data-dove="controllo" aria-label="Cerca con il barcode">${ico.barcode}</button></div>
   <div class="lista" id="ctrl-lista">${codici.map((k) => { const q = c.righe[k] || 0; return `<div class="ctrl-riga ${q ? 'segnato' : ''}" data-cerca="${esc(chiave(k + ' ' + g.prodotto(k).descrizione))}" data-codice="${esc(k)}">
       <span class="corpo"><b>${esc(k)}</b><small class="tenue taglia">${esc(g.prodotto(k).descrizione)}</small><small class="tenue">nel distributore ${num(g.prodotto(k).quantita)}</small></span>
       <button type="button" class="pm" data-a="ctrl-meno" data-codice="${esc(k)}" aria-label="Meno ${esc(k)}" ${q ? '' : 'disabled'}>−</button>
@@ -415,7 +418,8 @@ function articoli() {
   const chip = (k, t, n) => `<button type="button" class="chip" data-a="filtro" data-filtro="${k}" aria-pressed="${ui.filtro === k}">${t} ${n}</button>`;
   return `
   <div class="riga-titolo"><h1>Articoli</h1><button type="button" class="btn vuoto piccolo" data-a="nuovo-articolo">+ Nuovo</button></div>
-  <label class="cerca">${ico.cerca}<span class="nascosto">Cerca articolo</span><input id="cerca-art" type="search" placeholder="Codice o descrizione" value="${esc(ui.cerca)}" data-input="cerca" autocomplete="off"></label>
+  <div class="cerca-riga"><label class="cerca">${ico.cerca}<span class="nascosto">Cerca articolo</span><input id="cerca-art" type="search" placeholder="Codice o descrizione" value="${esc(ui.cerca)}" data-input="cerca" autocomplete="off"></label>
+    <button type="button" class="scan" data-a="scan" data-dove="articoli" aria-label="Cerca con il barcode">${ico.barcode}</button></div>
   <div class="chips">${ui.filtro === 'riordino' ? chip('riordino', 'Da riordinare', tutti.filter(filtri.riordino).length) : ''}${chip('tutti', 'Tutti', tutti.length)}${chip('sotto', 'Sotto scorta', tutti.filter(filtri.sotto).length)}${chip('magazzino', 'In magazzino', tutti.filter(filtri.magazzino).length)}</div>
   ${el.length ? el.map((p) => {
     const c = p.carico_completo;
@@ -610,8 +614,9 @@ function inventario() {
   return `<h1>Inventario</h1>
   <div class="carta"><b>Foglio d'inventario</b><small class="tenue">PDF A4 in bianco e nero con tutti gli articoli, le giacenze attuali, il barcode e lo spazio per scrivere i conteggi.</small>
     <button type="button" class="btn secondario" data-a="pdf-inventario">${ico.mail} Crea il foglio e mandalo</button></div>
-  <div class="carta"><b>Conta e correggi</b><small class="tenue">Scrivi solo quello che hai contato diverso. Applico tutto insieme e finisce nello storico.</small></div>
-  <div class="lista">${el.map((p) => `<div class="inv"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small></span>
+  <div class="carta"><b>Conta e correggi</b><small class="tenue">Scrivi solo quello che hai contato diverso. Applico tutto insieme e finisce nello storico.</small>
+    <button type="button" class="btn vuoto" data-a="scan" data-dove="inventario">${ico.barcode} Trova con il barcode</button></div>
+  <div class="lista">${el.map((p) => `<div class="inv" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small></span>
     <label class="inv-c"><span>Distr. ${num(p.quantita)}</span><input type="number" inputmode="numeric" placeholder="${p.quantita}" value="${esc(conti[p.codice]?.distributore ?? '')}" data-inv="${esc(p.codice)}" data-campo="distributore" aria-label="Contati nel distributore ${esc(p.codice)}"></label>
     <label class="inv-c"><span>Mag. ${num(p.magazzino)}</span><input type="number" inputmode="numeric" placeholder="${p.magazzino}" value="${esc(conti[p.codice]?.magazzino ?? '')}" data-inv="${esc(p.codice)}" data-campo="magazzino" aria-label="Contati in magazzino ${esc(p.codice)}"></label></div>`).join('')}</div>
   <button type="button" class="btn" data-a="inv-applica" ${cambiati ? '' : 'disabled'}>Applica i conteggi${cambiati ? ` (${cambiati} articoli)` : ''}</button>
@@ -905,6 +910,26 @@ function ctrlCambia(k, d) {
   const b = document.querySelector('[data-a="ctrl-salva"]'); if (b) { b.textContent = testoCtrl(); b.disabled = !Object.keys(r).length; }
 }
 
+function dopoScan(testo, dove) {
+  const k = g.trovaBarcode(testo);
+  if (k) { vaiAlPezzo(k, dove); return; }
+  // barcode del produttore mai visto: si abbina una volta e poi si riconosce da solo
+  apriFoglio(`<h1>Barcode nuovo</h1><div class="tenue">Ho letto <b style="color:var(--testo)">${esc(testo)}</b> ma non lo conosco. A quale articolo appartiene? Da adesso lo riconosco da solo.</div>
+    <div class="campo"><label for="bar-art">Articolo</label><select id="bar-art"><option value="">Scegli l'articolo…</option>${Object.keys(g.s.prodotti).sort().map((c) => `<option value="${esc(c)}">${esc(c)} – ${esc(g.prodotto(c).descrizione)}</option>`).join('')}</select></div>
+    <div class="affianca"><button type="button" class="btn vuoto" data-a="chiudi">Annulla</button><button type="button" class="btn" data-a="associa-bar" data-testo="${esc(testo)}" data-dove="${esc(dove)}">Abbina</button></div>`);
+}
+
+function vaiAlPezzo(k, dove) {
+  if (dove === 'articoli') { foglioArticolo(k); return; }
+  const sel = dove === 'controllo' ? `.ctrl-riga[data-codice="${CSS.escape(k)}"]` : `.inv[data-codice="${CSS.escape(k)}"]`;
+  const cerca = document.getElementById('ctrl-cerca'); if (cerca && cerca.value) { cerca.value = ''; cerca.dispatchEvent(new Event('input', { bubbles: true })); }
+  const riga = document.querySelector(sel);
+  if (!riga) { avviso(`${k} non è in questa pagina.`, true); return; }
+  riga.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  riga.classList.remove('lampo'); void riga.offsetWidth; riga.classList.add('lampo');
+  avviso(`${k} · ${g.prodotto(k).descrizione}`);
+}
+
 async function condividi(file, titolo) {
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: titolo }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -986,6 +1011,8 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'scan': (el) => { const dove = el.dataset.dove; apriLettore((testo) => dopoScan(testo, dove), dove === 'controllo' ? 'Controllo sul posto: inquadra il barcode' : 'Inquadra il barcode'); },
+  'associa-bar': (el) => { const k = $('#bar-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.associaBarcode(k, el.dataset.testo), `Barcode abbinato a ${k}.`).then(() => { chiudiFoglio(); vaiAlPezzo(k, el.dataset.dove); }); },
   'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
   'pref-modo': (el) => { try { localStorage.setItem('pref_modo', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();
