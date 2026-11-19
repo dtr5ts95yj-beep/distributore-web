@@ -313,6 +313,7 @@ function controllo() {
   <div class="carta">
     <div class="campo"><label for="ctrl-data">Giorno del controllo</label><input id="ctrl-data" type="date" value="${c.data}" data-a-cambio="ctrl-data"></div>
   </div>
+  <button type="button" class="btn modo-barcode" data-a="ctrl-barcode">${ico.barcode} Barcode <small>leggi e scrivi i pezzi, uno dopo l'altro</small></button>
   <div class="cerca-riga"><div class="campo" style="flex:1"><input id="ctrl-cerca" type="search" placeholder="Cerca codice o descrizione…" autocomplete="off" aria-label="Cerca articolo"></div>
     <button type="button" class="scan" data-a="scan" data-dove="controllo" aria-label="Cerca con il barcode">${ico.barcode}</button></div>
   <div class="lista" id="ctrl-lista">${codici.map((k) => { const q = c.righe[k] || 0; return `<div class="ctrl-riga ${q ? 'segnato' : ''}" data-cerca="${esc(chiave(k + ' ' + g.prodotto(k).descrizione))}" data-codice="${esc(k)}">
@@ -910,13 +911,49 @@ function ctrlCambia(k, d) {
   const b = document.querySelector('[data-a="ctrl-salva"]'); if (b) { b.textContent = testoCtrl(); b.disabled = !Object.keys(r).length; }
 }
 
+// Controllo sul posto in modalità barcode: beep → articolo e quantità → Aggiungi → si continua a leggere
+function modalitaBarcode() {
+  const r = ui.controllo.righe;
+  const conta = () => { const v = Object.values(r); return v.length ? `${v.length} ${v.length === 1 ? 'articolo' : 'articoli'} · ${v.reduce((a, b) => a + b, 0)} pezzi` : 'Ancora nessun pezzo'; };
+  let barra;
+  apriLettore((testo, { riprendi, box }) => {
+    const pannello = document.createElement('div'); pannello.className = 'let-pannello';
+    const mostra = (k) => {
+      const p = g.prodotto(k), gia = r[k] || 0;
+      pannello.innerHTML = `<div class="lp-art"><b>${esc(k)}</b><span>${esc(p.descrizione)}</span><small>nel distributore ${num(p.quantita)}${gia ? ` · già segnati <b>${gia}</b>` : ''}</small></div>
+        <div class="lp-q"><span>Quantità</span><button type="button" class="pm" data-d="-1" aria-label="Meno">−</button><input type="number" inputmode="numeric" min="1" value="1" aria-label="Pezzi mancanti"><button type="button" class="pm piu" data-d="1" aria-label="Più">+</button></div>
+        <div class="affianca"><button type="button" class="btn vuoto" data-x="salta">Salta</button><button type="button" class="btn" data-x="ok">Aggiungi</button></div>`;
+      const inp = pannello.querySelector('input');
+      pannello.querySelectorAll('.pm').forEach((b) => b.onclick = () => { inp.value = Math.max(1, (Number(inp.value) || 0) + Number(b.dataset.d)); });
+      pannello.querySelector('[data-x="salta"]').onclick = () => { pannello.remove(); riprendi(); };
+      pannello.querySelector('[data-x="ok"]').onclick = () => {
+        const q = Math.round(Number(inp.value)); if (!(q > 0)) { inp.focus(); return; }
+        r[k] = gia + q; barra.textContent = conta(); pannello.remove();
+        riprendi(); box.querySelector('.let-stato').textContent = `${k} +${q} ✓ · inquadra il prossimo`;
+      };
+      setTimeout(() => { inp.focus(); inp.select(); }, 50);
+    };
+    const k = g.trovaBarcode(testo);
+    if (!k) { const st = box.querySelector('.let-stato'); st.textContent = `${testo}: non è un codice AS400 dei tuoi articoli, lo ignoro`; setTimeout(() => { riprendi(); st.textContent = 'Cerco…'; }, 1500); return; }
+    mostra(k);
+    box.appendChild(pannello);
+  }, 'Controllo sul posto · Barcode', {
+    continuo: true,
+    chiuso: () => { disegna(); if (Object.keys(r).length) avviso(`${conta()}: controlla e premi Salva il controllo.`); },
+  });
+  // in alto il conteggio e il pulsante Fine
+  setTimeout(() => {
+    const box = document.getElementById('lettore'); if (!box) return;
+    box.insertAdjacentHTML('beforeend', `<div class="let-fondo"><span class="let-conta">${conta()}</span><button type="button" class="btn" data-x="fine">Fine</button></div>`);
+    barra = box.querySelector('.let-conta');
+    box.querySelector('[data-x="fine"]').onclick = () => box.querySelector('.let-chiudi').click();
+  }, 0);
+}
+
 function dopoScan(testo, dove) {
   const k = g.trovaBarcode(testo);
-  if (k) { vaiAlPezzo(k, dove); return; }
-  // barcode del produttore mai visto: si abbina una volta e poi si riconosce da solo
-  apriFoglio(`<h1>Barcode nuovo</h1><div class="tenue">Ho letto <b style="color:var(--testo)">${esc(testo)}</b> ma non lo conosco. A quale articolo appartiene? Da adesso lo riconosco da solo.</div>
-    <div class="campo"><label for="bar-art">Articolo</label><select id="bar-art"><option value="">Scegli l'articolo…</option>${Object.keys(g.s.prodotti).sort().map((c) => `<option value="${esc(c)}">${esc(c)} – ${esc(g.prodotto(c).descrizione)}</option>`).join('')}</select></div>
-    <div class="affianca"><button type="button" class="btn vuoto" data-a="chiudi">Annulla</button><button type="button" class="btn" data-a="associa-bar" data-testo="${esc(testo)}" data-dove="${esc(dove)}">Abbina</button></div>`);
+  if (k) vaiAlPezzo(k, dove);
+  else avviso(`${testo}: non è un codice AS400 dei tuoi articoli.`, true);
 }
 
 function vaiAlPezzo(k, dove) {
@@ -1011,8 +1048,8 @@ const azioni = {
   },
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
+  'ctrl-barcode': () => modalitaBarcode(),
   'scan': (el) => { const dove = el.dataset.dove; apriLettore((testo) => dopoScan(testo, dove), dove === 'controllo' ? 'Controllo sul posto: inquadra il barcode' : 'Inquadra il barcode'); },
-  'associa-bar': (el) => { const k = $('#bar-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.associaBarcode(k, el.dataset.testo), `Barcode abbinato a ${k}.`).then(() => { chiudiFoglio(); vaiAlPezzo(k, el.dataset.dove); }); },
   'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
   'pref-modo': (el) => { try { localStorage.setItem('pref_modo', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();

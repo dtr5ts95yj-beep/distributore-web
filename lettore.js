@@ -1,4 +1,5 @@
-// Lettore di barcode con la fotocamera: Code 128 (le etichette AS400) ed EAN-13 / EAN-8 (i codici del produttore).
+// Lettore di barcode con la fotocamera: solo Code 128, cioè le etichette con il codice AS400.
+// I barcode del produttore (EAN) non si leggono apposta: non devono confondere il programma.
 // Su iPhone Safari non esiste un lettore di sistema per le pagine web, quindi la lettura è fatta qui:
 // si prendono alcune righe orizzontali dell'immagine, si trasformano in barre e spazi e si decodificano.
 
@@ -63,45 +64,6 @@ function decodifica128(r) {
   return null;
 }
 
-// EAN: cifre L (dispari), G (pari), R; in larghezze di 4 elementi su 7 moduli
-const EAN_L = ['3211', '2221', '2122', '1411', '1132', '1231', '1114', '1312', '1213', '3112'].map((p) => [...p].map(Number));
-const EAN_G = EAN_L.map((p) => [...p].reverse());
-const PRIMA = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
-
-function cifra(w, tabelle) {
-  const t = w.reduce((a, b) => a + b, 0), n = w.map((x) => x * 7 / t);
-  let best = null, err = 1e9;
-  for (const [nome, tab] of tabelle) tab.forEach((p, d) => { const e = p.reduce((s, x, k) => s + Math.abs(n[k] - x), 0); if (e < err) { err = e; best = [d, nome]; } });
-  return err < 1.8 ? best : null;
-}
-
-function controlloEan(cifre) {
-  const c = cifre.slice(0, -1).reverse().reduce((s, d, k) => s + d * (k % 2 === 0 ? 3 : 1), 0);
-  return (10 - (c % 10)) % 10 === cifre[cifre.length - 1];
-}
-
-function decodificaEan(r) {
-  for (let i = 0; i + 3 <= r.length; i += 2) {
-    const m = (r[i] + r[i + 1] + r[i + 2]) / 3;
-    if (Math.max(r[i], r[i + 1], r[i + 2]) > m * 1.8 || (i > 0 && r[i - 1] < m * 2)) continue;
-    // EAN-13: 3 + 24 + 5 + 24 + 3 elementi
-    for (const [quante, totale] of [[6, 59], [4, 43]]) {
-      if (i + totale > r.length) continue;
-      const cifre = [], parita = [];
-      let j = i + 3, ok = true;
-      for (let k = 0; k < quante; k++) { const c = cifra(r.slice(j, j + 4), quante === 6 ? [['L', EAN_L], ['G', EAN_G]] : [['L', EAN_L]]); if (!c) { ok = false; break; } cifre.push(c[0]); parita.push(c[1]); j += 4; }
-      if (!ok) continue;
-      j += 5;
-      for (let k = 0; k < quante; k++) { const c = cifra(r.slice(j, j + 4), [['R', EAN_L]]); if (!c) { ok = false; break; } cifre.push(c[0]); j += 4; }
-      if (!ok) continue;
-      let tutte = cifre;
-      if (quante === 6) { const p = PRIMA.indexOf(parita.join('')); if (p < 0) continue; tutte = [p, ...cifre]; }
-      if (controlloEan(tutte)) return tutte.join('');
-    }
-  }
-  return null;
-}
-
 // una riga di luminanza → larghezze di barre e spazi a partire dalla prima barra
 function righeInLarghezze(L) {
   const n = L.length;
@@ -134,11 +96,11 @@ export function leggiRiga(L) {
   const r = righeInLarghezze(L);
   if (!r) return null;
   const rev = [...L].reverse(), rr = righeInLarghezze(rev);
-  return decodifica128(r) || decodificaEan(r) || (rr && (decodifica128(rr) || decodificaEan(rr))) || null;
+  return decodifica128(r) || (rr && decodifica128(rr)) || null;   // solo Code 128: le etichette con il codice AS400
 }
 
 /** Apre la fotocamera a tutto schermo; chiama trovato(testo) alla prima lettura sicura. */
-export async function apriLettore(trovato, titolo = 'Inquadra il barcode') {
+export async function apriLettore(trovato, titolo = 'Inquadra il barcode', opz = {}) {
   const box = document.createElement('div');
   box.id = 'lettore';
   box.innerHTML = `<video playsinline muted autoplay></video>
@@ -149,7 +111,10 @@ export async function apriLettore(trovato, titolo = 'Inquadra il barcode') {
   document.body.appendChild(box);
   const video = box.querySelector('video'), stato = box.querySelector('.let-stato');
   let flusso = null, attivo = true, timer = null;
-  const chiudi = () => { attivo = false; clearTimeout(timer); flusso?.getTracks().forEach((t) => t.stop()); box.remove(); };
+  const chiudi = () => { attivo = false; clearTimeout(timer); flusso?.getTracks().forEach((t) => t.stop()); box.remove(); opz.chiuso?.(); };
+  let fermo = false, ignora = '', ignoraFino = 0;
+  // modalità continua: dopo la lettura la fotocamera resta aperta e si riprende con riprendi()
+  const riprendi = (ultimoLetto) => { box.classList.remove('preso'); fermo = false; ignora = ultimoLetto || ''; ignoraFino = performance.now() + 3000; stato.textContent = 'Cerco…'; };
   box.querySelector('.let-chiudi').onclick = chiudi;
   try {
     flusso = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
@@ -161,13 +126,13 @@ export async function apriLettore(trovato, titolo = 'Inquadra il barcode') {
   await video.play().catch(() => {});
   try { const [t] = flusso.getVideoTracks(); const c = t.getCapabilities?.(); if (c?.focusMode?.includes('continuous')) await t.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch { /* niente */ }
   const nativo = ('BarcodeDetector' in window) && !window.__soloLettoreInterno
-    ? await window.BarcodeDetector.getSupportedFormats().then((f) => f.length ? new window.BarcodeDetector({ formats: f.filter((x) => ['code_128', 'ean_13', 'ean_8', 'upc_a', 'code_39'].includes(x)) }) : null).catch(() => null) : null;
+    ? await window.BarcodeDetector.getSupportedFormats().then((f) => f.length ? new window.BarcodeDetector({ formats: f.filter((x) => x === 'code_128') }) : null).catch(() => null) : null;
   const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
   let ultimo = '', volte = 0;
   const giro = async () => {
     if (!attivo) return;
     const vw = video.videoWidth, vh = video.videoHeight;
-    if (vw && vh) {
+    if (vw && vh && !fermo) {
       let letto = null;
       if (nativo) { try { const r = await nativo.detect(video); if (r.length) letto = r[0].rawValue; } catch { /* niente */ } }
       if (!letto) {
@@ -182,14 +147,15 @@ export async function apriLettore(trovato, titolo = 'Inquadra il barcode') {
           letto = leggiRiga(L);
         }
       }
+      if (letto && letto === ignora && performance.now() < ignoraFino) letto = null;
       if (letto) {
         if (letto === ultimo) volte++; else { ultimo = letto; volte = 1; }
         stato.textContent = `Letto ${letto}…`;
         if (volte >= 2 || nativo) {
           box.classList.add('preso');
           try { const a = new (window.AudioContext || window.webkitAudioContext)(); const o = a.createOscillator(), gg = a.createGain(); o.frequency.value = 1760; gg.gain.value = 0.08; o.connect(gg).connect(a.destination); o.start(); o.stop(a.currentTime + 0.09); } catch { /* niente */ }
-          setTimeout(() => { chiudi(); trovato(letto); }, 220);
-          return;
+          if (opz.continuo) { fermo = true; ultimo = ''; volte = 0; trovato(letto, { riprendi: () => riprendi(letto), chiudi, box }); }
+          else { setTimeout(() => { chiudi(); trovato(letto); }, 220); return; }
         }
       }
     }

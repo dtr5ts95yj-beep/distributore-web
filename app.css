@@ -299,3 +299,16 @@ html[data-colori="indaco"] { --fondo: #0b0b1a; --scheda: #16162e; --scheda2: #1c
 .let-testa b { font-size: 18px; } .let-testa small { color: #ddd; }
 .let-stato { position: absolute; bottom: calc(var(--basso) + 40px); left: 0; right: 0; text-align: center; color: #fff; font-weight: 700; padding: 0 20px; }
 .let-chiudi { position: absolute; top: calc(var(--alto) + 18px); right: 16px; width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255, 255, 255, .2); color: #fff; font-size: 20px; }
+
+.modo-barcode { flex-direction: column; gap: 2px; min-height: 64px; background: linear-gradient(90deg, var(--a1), var(--a2)); font-size: 18px; }
+.modo-barcode .ico { display: none; } .modo-barcode small { font-size: 12px; font-weight: 500; opacity: .9; }
+.let-pannello { position: absolute; left: 12px; right: 12px; bottom: calc(var(--basso) + 92px); z-index: 3; background: var(--scheda); color: var(--testo); border-radius: 22px; padding: 16px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); animation: comparsa .25s ease both; }
+.let-pannello select { height: 48px; border-radius: 12px; border: 1px solid var(--bordo); background: var(--fondo); color: var(--testo); padding: 0 10px; font-size: 16px; }
+.lp-art { display: flex; flex-direction: column; gap: 2px; } .lp-art b { font-size: 22px; } .lp-art span { color: var(--tenue); } .lp-art small { color: var(--tenue); }
+.lp-q { display: flex; align-items: center; gap: 10px; } .lp-q > span { flex: 1; font-weight: 700; }
+.lp-q input { width: 84px; height: 52px; text-align: center; font-size: 26px; font-weight: 800; border-radius: 14px; border: 2px solid var(--rosa); background: var(--fondo); color: var(--testo); }
+.lp-q .pm { width: 52px; height: 52px; border-radius: 14px; border: 1px solid var(--bordo); background: var(--fondo); color: var(--testo); font-size: 26px; font-weight: 800; }
+.lp-q .pm.piu { background: var(--rosa); color: #1a1026; border-color: transparent; }
+.let-fondo { position: absolute; left: 12px; right: 12px; bottom: calc(var(--basso) + 20px); display: flex; align-items: center; gap: 12px; background: rgba(0, 0, 0, .6); border-radius: 18px; padding: 10px 10px 10px 16px; color: #fff; font-weight: 700; }
+.let-fondo .let-conta { flex: 1; } .let-fondo .btn { min-height: 44px; padding: 0 22px; }
+#lettore .let-stato { bottom: calc(var(--basso) + 92px); }
