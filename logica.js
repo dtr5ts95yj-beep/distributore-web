@@ -7,7 +7,7 @@ export const TIPI = {
   NUOVO_PRODOTTO: 'Nuovo prodotto', MODIFICA_MANUALE: 'Modifica giacenza', MODIFICA_ARTICOLO: 'Modifica articolo',
   STORICO_IMPORTATO: 'Storico importato', REINTEGRO_MAGAZZINO: 'Reintegro magazzino',
   CORREZIONE_MAGAZZINO: 'Correzione magazzino', ECCESSO_MAGAZZINO: 'Eccesso a magazzino',
-  DAL_MAGAZZINO: 'Dal magazzino al distributore', AMMANCO: 'Ammanco', CONTROLLO_POSTO: 'Controllo sul posto',
+  DAL_MAGAZZINO: 'Dal magazzino al distributore', REGOLA_MAGAZZINO: 'Ricalcolo con la regola nuova del magazzino', AMMANCO: 'Ammanco', CONTROLLO_POSTO: 'Controllo sul posto',
   ZIP_ELIMINATO: 'ZIP annullato', CANCELLAZIONE_INVENTARIO: 'Azzeramento giacenze', ARTICOLO_ELIMINATO: 'Articolo eliminato',
 };
 
@@ -199,7 +199,27 @@ export function normalizza(s) {
 }
 
 export class Gestionale {
-  constructor(stato) { this.s = normalizza(stato); }
+  constructor(stato) { this.s = normalizza(stato); if (stato && !this.s.regola_magazzino) this._regolaNuovaMagazzino(); }
+
+  /** Una volta sola: disfa gli spostamenti dal magazzino fatti con la regola vecchia (riempire fino al carico completo).
+   *  Con la regola nuova il magazzino si tocca solo quando il distributore è a zero. Il totale non cambia. */
+  _regolaNuovaMagazzino() {
+    const ora = adessoIso(), per = {};
+    for (const m of this.s.movimenti) if (m.tipo === 'DAL_MAGAZZINO') per[m.codice] = (per[m.codice] || 0) + Number(m.quantita || 0);
+    let n = 0;
+    for (const [codice, q] of Object.entries(per)) {
+      const p = this.s.prodotti[codice];
+      if (!p || !(q > 0)) continue;
+      const prima = p.quantita;
+      p.quantita -= q; p.magazzino = (p.magazzino || 0) + q;
+      this._mov('REGOLA_MAGAZZINO', codice, p.descrizione, -q, prima, p.quantita, 'Regola nuova del magazzino',
+        `${q} pezzi tornati in magazzino: li aveva spostati la regola vecchia. Il magazzino si usa solo quando il distributore è a zero.`, ora);
+      n++;
+    }
+    this.s.regola_magazzino = 2;
+    if (n) { this.riempiDaMagazzino('Regola nuova del magazzino'); this._tocca(); }
+    this.s.regola_magazzino_articoli = n;
+  }
 
   _id() { return (this.s.movimenti.reduce((m, x) => Math.max(m, x.id || 0), 0) || 0) + 1; }
   _mov(tipo, codice, descrizione, quantita, prima, dopo, origine, note = '', ora = adessoIso()) {

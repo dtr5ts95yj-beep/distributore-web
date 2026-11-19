@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.7';
+const VERSIONE = '2.8';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
