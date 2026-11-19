@@ -719,6 +719,17 @@ function apriFoglio(html) {
   $('#foglio').innerHTML = `<button type="button" class="chiudi" data-a="chiudi" aria-label="Chiudi">×</button>${html}`;
   $('#foglio').hidden = false; $('#velo').hidden = false;
 }
+// conferma grande, difficile da premere per sbaglio: il pulsante si sblocca dopo un attimo
+function chiediConferma({ titolo, testo, si, pericolo = false }) {
+  return new Promise((ok) => {
+    apriFoglio(`<h1>${titolo}</h1><div style="font-size:16px;line-height:1.45">${testo}</div>
+      <div class="affianca"><button type="button" class="btn vuoto" id="conf-no">Annulla</button><button type="button" class="btn ${pericolo ? 'pericolo' : ''}" id="conf-si" disabled>${si}</button></div>`);
+    const b = $('#conf-si'); setTimeout(() => { b.disabled = false; }, 900);
+    const fine = (v) => { chiudiFoglio(); ok(v); };
+    b.onclick = () => fine(true); $('#conf-no').onclick = () => fine(false);
+    $('#foglio .chiudi').onclick = () => fine(false);
+  });
+}
 function chiudiFoglio() { $('#foglio').hidden = true; $('#velo').hidden = true; $('#foglio').innerHTML = ''; }
 
 function foglioArticolo(codice, modifica = false) {
@@ -1049,7 +1060,13 @@ const azioni = {
   'azzera': async () => { if (!confirm('Azzero distributore e magazzino di TUTTI gli articoli?')) return; if (!confirm('Sicuro? Prima faccio un backup nel telefono.')) return; await backupLocale('prima di azzerare le giacenze'); cambia(() => g.azzeraGiacenze(), 'Giacenze azzerate.'); },
   'annulla-zip': async (el) => { if (!confirm(`Annullo ${el.dataset.nome}? I suoi pezzi tornano nel distributore e spariscono dal rifornimento.`)) return; await backupLocale(`prima di annullare ${el.dataset.nome}`); cambia(() => g.annullaZip(el.dataset.nome), (r) => `ZIP annullato: ${r.pezzi} pezzi rimessi.`); },
   'annulla-rif': async () => { if (!confirm('Annullo l\'ultimo rifornimento? I pezzi riportati escono di nuovo e la lista torna com\'era.')) return; await backupLocale('prima di annullare il rifornimento'); cambia(() => g.annullaUltimoRifornimento(), 'Rifornimento annullato.'); },
-  'svuota-bozza': () => { if (confirm('Svuoto il rifornimento? Le giacenze non cambiano.')) cambia(() => g.svuotaBozza(), 'Rifornimento svuotato.'); },
+  'svuota-bozza': async () => {
+    const pezzi = g.s.bozza.reduce((t, b) => t + (b.quantita > 0 ? b.quantita : 0), 0);
+    if (!await chiediConferma({ titolo: 'Svuoto il rifornimento?', si: 'Sì, svuota', pericolo: true,
+      testo: `Tolgo dalla lista tutti i <b>${num(pezzi)} pezzi</b> da riportare. Le giacenze non cambiano, ma la lista va rifatta a mano.<br><br><small class="tenue">Prima salvo una copia: la ritrovi in Altro → Backup.</small>` })) return;
+    await backupLocale('prima di svuotare il rifornimento');
+    cambia(() => g.svuotaBozza(), 'Rifornimento svuotato.');
+  },
   'ripdf': async (el) => { const r = g.s.rifornimenti.find((x) => x.data_ora === el.dataset.ora); if (!r) return; const righe = r.righe.filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice)).map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione })); const byte = await pdfRifornimento(righe, `Rifornimento del ${isoIta(r.data_ora.slice(0, 10))} ${r.data_ora.slice(11, 16)}   ·   ${r.articoli} articoli   ·   ${r.pezzi} pezzi   ·   copia`); condividi(new File([byte], nomeFile(r.data_ora.slice(0, 10)), { type: 'application/pdf' }), 'Rifornimento distributore'); },
   'riabilita': (el) => cambia(() => g.riabilitaDescrizione(el.dataset.chiave), 'Descrizione riabilitata.'),
   'backup-ora': async () => { await backupLocale('copia a mano'); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia fatta.'); disegna(); },
@@ -1102,9 +1119,11 @@ const azioni = {
   'meno': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice); cambia(() => g.impostaQuantitaBozza(b.codice, b.quantita - 1)); },
   'piu': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice); cambia(() => g.impostaQuantitaBozza(b.codice, b.quantita + 1)); },
   'pdf': async (el) => { el.disabled = true; try { await creaPdf(); } catch (e) { avviso('PDF non creato: ' + e.message, true); } el.disabled = false; },
-  'fatto': () => {
-    const pezzi = g.s.bozza.reduce((s, b) => s + (b.quantita > 0 ? b.quantita : 0), 0);
-    if (!confirm(`Hai riportato i ${pezzi} pezzi nel distributore?\n\nTornano nel distributore e quelli oltre il carico completo vanno in magazzino.`)) return;
+  'fatto': async () => {
+    const righe = g.s.bozza.filter((b) => b.quantita > 0), pezzi = righe.reduce((t, b) => t + b.quantita, 0);
+    if (!await chiediConferma({ titolo: 'Rifornimento fatto?', si: `Sì, li ho riportati`,
+      testo: `Confermi di aver messo nel distributore <b>${num(pezzi)} pezzi</b> di <b>${righe.length} articoli</b>?<br><br><small class="tenue">${esc(periodoBozza())}. Tornano nel distributore, quelli oltre il carico completo vanno in magazzino, e il giro riparte da zero. Se sbagli puoi annullarlo dai Rifornimenti fatti.</small>` })) return;
+    await backupLocale('prima del rifornimento fatto');
     cambia(() => g.rifornimentoFatto(), (r) => `Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi.`);
   },
   'ignora-giorno': (el) => cambia(() => { g.s.giorni_ignorati.push(el.dataset.giorno); g.s.aggiornato = new Date().toISOString(); }, 'Giorno ignorato.').then(chiudiFoglio),
