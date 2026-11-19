@@ -1,5 +1,5 @@
 // Tiene la web app nel telefono: si apre anche senza rete. Google Drive passa sempre dalla rete.
-const VERSIONE = 'distributore-3.9';
+const VERSIONE = 'distributore-4.0';
 const FILE = ['./', 'index.html', 'app.css', 'app.js', 'logica.js', 'drive.js', 'stampa.js', 'lettore.js', 'manifest.webmanifest',
   'lib/jszip.min.js', 'lib/pdf-lib.min.js', 'lib/pdf.min.mjs', 'lib/pdf.worker.min.mjs',
   'icone/icona-192.png', 'icone/icona-512.png', 'icone/apple-touch-icon.png'];

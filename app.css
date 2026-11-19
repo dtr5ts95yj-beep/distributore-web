@@ -375,3 +375,20 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
 .mag-chip.si { background: color-mix(in srgb, var(--a3) 35%, transparent); color: #fff; }
 .mag-chip.tanti { background: rgba(255, 180, 84, .2); color: var(--arancio); box-shadow: inset 0 0 0 1px rgba(255, 180, 84, .5); }
 .rif-testa button.mag-chip { border: 0; cursor: pointer; }
+
+/* ---------- storico a eventi */
+.st-somme { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.st-somme > div { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 16px; background: linear-gradient(160deg, var(--wid1), var(--wid2)); }
+.st-somme span { font-size: 11px; font-weight: 700; color: var(--tenue); } .st-somme strong { font-size: 24px; font-weight: 900; }
+.st-somme .meno, .giorno-st .meno, .ev .qta.meno { color: #ff8fa3; } .st-somme .piu-t, .giorno-st .piu-t { color: var(--verde); }
+.st-barra { display: flex; gap: 8px; align-items: center; } .st-barra select { flex: 1; height: 40px; border-radius: 12px; border: 1px solid var(--bordo); background: var(--scheda); color: var(--testo); padding: 0 10px; font-size: 15px; }
+.interruttore { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--tenue); }
+.giorno-st { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; padding: 0 4px; } .giorno-st b { font-size: 15px; text-transform: capitalize; }
+.giorno-st span { display: flex; gap: 10px; font-size: 12px; font-weight: 800; } .giorno-st i { font-style: normal; }
+.eventi .ev + .ev { border-top: 1px solid var(--linea); }
+.ev-testa { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; background: none; border: 0; color: var(--testo); text-align: left; }
+.ev-testa .m-ico { width: 32px; height: 32px; border-radius: 9px; } .ev-testa .m-ico svg { width: 18px; height: 18px; }
+.ev-testa .corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; } .ev-freccia { color: var(--tenue); font-size: 12px; }
+.ev .qta { font-weight: 900; font-size: 17px; } .ev .qta.piu-t { color: var(--verde); }
+.ev-righe { padding: 0 14px 10px 58px; display: flex; flex-direction: column; } .ev.aperto { background: rgba(255, 255, 255, .03); }
+.ev-r { display: flex; align-items: center; gap: 10px; padding: 7px 0; background: none; border: 0; border-top: 1px dashed var(--linea); color: var(--testo); text-align: left; } .ev-r .corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; }

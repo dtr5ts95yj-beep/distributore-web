@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '3.9';
+const VERSIONE = '4.0';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -583,32 +583,80 @@ function periodoBozza() {
   return dal === al ? `Prelievi del ${isoIta(dal)}` : `Prelievi dal ${isoIta(dal)} al ${isoIta(al)}`;
 }
 
-const GRUPPI = { tutti: null, zip: ['SCARICO_ZIP'], rif: ['RIFORNIMENTO'], mag: ['DAL_MAGAZZINO', 'ECCESSO_MAGAZZINO', 'CORREZIONE_MAGAZZINO', 'REINTEGRO_MAGAZZINO'], corr: ['MODIFICA_MANUALE', 'MODIFICA_ARTICOLO', 'CONTROLLO_POSTO', 'AMMANCO', 'NUOVO_PRODOTTO', 'CARICO_MANUALE'], imp: ['STORICO_IMPORTATO'] };
+// Storico "a eventi": uno ZIP, un rifornimento, un controllo sono una riga sola, che si apre per vedere gli articoli.
+// Gli spostamenti interni tra distributore e magazzino non cambiano il totale: si vedono solo se li chiedi.
+const GRUPPO_DI = {
+  SCARICO_ZIP: 'zip', RIFORNIMENTO: 'rif', CONTROLLO_POSTO: 'ctrl', AMMANCO: 'ctrl', STORICO_IMPORTATO: 'imp',
+  MODIFICA_MANUALE: 'corr', CORREZIONE_MAGAZZINO: 'corr', CARICO_MANUALE: 'corr', NUOVO_PRODOTTO: 'corr', CANCELLAZIONE_INVENTARIO: 'corr', ARTICOLO_ELIMINATO: 'corr', ZIP_ELIMINATO: 'corr',
+  DAL_MAGAZZINO: 'int', ECCESSO_MAGAZZINO: 'int', REGOLA_MAGAZZINO: 'int', REINTEGRO_MAGAZZINO: 'int', MODIFICA_ARTICOLO: 'int',
+};
+const ASPETTO_EV = {
+  zip: ['#ff6b81', 'Prelievi dallo ZIP', '<path d="M4 4h12l4 4v12H4z"/><path d="M12 10v6M9 13l3 3 3-3"/>'],
+  rif: ['#34c759', 'Rifornimento', '<path d="M3 7h13v10H3z"/><path d="M16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>'],
+  ctrl: ['#ff9f0a', 'Controllo sul posto', '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
+  corr: ['#0a84ff', 'Correzione', '<path d="M4 20h4L20 8l-4-4L4 16z"/>'],
+  imp: ['#8e8e93', 'Storico importato', '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 20h16"/>'],
+  int: ['#636366', 'Distributore ↔ magazzino', '<path d="M7 7h11l-3-3M17 17H6l3 3"/>'],
+};
+function titoloEvento(ev) {
+  const [, nome] = ASPETTO_EV[ev.gruppo];
+  const o = ev.origine || '';
+  if (ev.gruppo === 'zip') { const z = /(\d{4})(\d{2})(\d{2})/.exec(o); return z ? `Prelievi del ${isoIta(piuGiorni(`${z[1]}-${z[2]}-${z[3]}`, -1))}` : nome; }
+  if (ev.gruppo === 'corr') return o === 'Inventario' ? 'Inventario' : o || nome;
+  if (ev.gruppo === 'imp') return 'Storico importato';
+  return nome;
+}
+
 function storico() {
   const q = chiave(ui.cercaStorico);
-  const tipi = GRUPPI[ui.tipoStorico];
-  const tutti = g.s.movimenti.filter((m) => (!tipi || tipi.includes(m.tipo)) && (!ui.meseStorico || (m.data_ora || '').startsWith(ui.meseStorico)) && (!q || chiave(m.codice + ' ' + m.descrizione).includes(q)));
+  const filtro = ui.tipoStorico || 'tutti', interni = !!ui.storicoInterni;
+  const tutti = g.s.movimenti.filter((m) => (!ui.meseStorico || (m.data_ora || '').startsWith(ui.meseStorico)) && (!q || chiave(m.codice + ' ' + m.descrizione).includes(q)))
+    .filter((m) => { const gr = GRUPPO_DI[m.tipo] || 'corr'; return filtro === 'tutti' ? (interni || gr !== 'int') && gr !== 'imp' : gr === filtro; });
   ui._storicoVisti = tutti;
-  tutti.sort((a, b) => (b.data_ora || '').localeCompare(a.data_ora || '') || b.id - a.id);
-  const mostra = tutti.slice(0, ui.quantiStorico);
-  const chip = (k, t) => `<button type="button" class="chip" data-a="tipo-storico" data-tipo="${k}" aria-pressed="${ui.tipoStorico === k}">${t}</button>`;
+  // eventi: stesso momento, stessa origine, stesso tipo
+  const per = new Map();
+  for (const m of tutti) {
+    const gr = GRUPPO_DI[m.tipo] || 'corr', k = `${m.data_ora}|${m.origine || ''}|${gr}`;
+    let ev = per.get(k);
+    if (!ev) { ev = { k, gruppo: gr, data_ora: m.data_ora || '', origine: m.origine || '', righe: new Map(), id: m.id }; per.set(k, ev); }
+    const r = ev.righe.get(m.codice) || { codice: m.codice, descrizione: m.descrizione, q: 0, note: m.note || '' };
+    if (gr !== 'int' || interni) r.q += Number(m.quantita || 0);
+    ev.righe.set(m.codice, r); ev.id = Math.max(ev.id, m.id || 0);
+  }
+  const eventi = [...per.values()].sort((a, b) => b.data_ora.localeCompare(a.data_ora) || b.id - a.id);
+  const mostra = eventi.slice(0, Math.round(ui.quantiStorico / 5));
+  const tot = (gr) => tutti.filter((m) => GRUPPO_DI[m.tipo] === gr).reduce((t, m) => t + Number(m.quantita || 0), 0);
+  const chip = (k, t) => `<button type="button" class="chip" data-a="tipo-storico" data-tipo="${k}" aria-pressed="${filtro === k}">${t}</button>`;
   let html = '', giorno = '';
-  for (const m of mostra) {
-    const gg = (m.data_ora || '').slice(0, 10);
-    if (gg !== giorno) { if (giorno) html += '</div>'; giorno = gg; html += `<div class="lista"><div class="giorno"><span>${GIORNI[new Date(gg + 'T12:00').getDay()]} ${isoIta(gg)}</span></div>`; }
-    const qta = Number(m.quantita || 0);
-    html += `<div class="mov"><span class="corpo"><b>${esc(m.codice)}</b><small class="tenue taglia">${esc(TIPI[m.tipo] || m.tipo)} · ${esc(m.descrizione || '')}</small>${m.note ? `<small class="tenue taglia">${esc(m.note)}</small>` : ''}</span>
-      <span style="display:flex;flex-direction:column;align-items:flex-end"><span class="qta ${qta < 0 ? 'meno' : qta > 0 ? 'piu-t' : ''}">${qta > 0 ? '+' : ''}${num(qta)}</span><small class="tenue">${m.prima ?? ''}${m.dopo != null ? ' → ' + m.dopo : ''}</small></span></div>`;
+  for (const ev of mostra) {
+    const gg = ev.data_ora.slice(0, 10);
+    if (gg !== giorno) {
+      if (giorno) html += '</div>';
+      giorno = gg;
+      const delG = tutti.filter((m) => (m.data_ora || '').startsWith(gg));
+      const pre = -delG.filter((m) => GRUPPO_DI[m.tipo] === 'zip').reduce((t, m) => t + Number(m.quantita || 0), 0), rip = delG.filter((m) => GRUPPO_DI[m.tipo] === 'rif').reduce((t, m) => t + Number(m.quantita || 0), 0);
+      html += `<div class="giorno-st"><b>${GIORNI[new Date(gg + 'T12:00').getDay()]} ${isoIta(gg)}</b><span>${pre ? `<i class="meno">−${num(pre)} prelevati</i>` : ''}${rip ? `<i class="piu-t">+${num(rip)} riportati</i>` : ''}</span></div><div class="lista eventi">`;
+    }
+    const [col, , svg] = ASPETTO_EV[ev.gruppo], righe = [...ev.righe.values()], somma = righe.reduce((t, r) => t + r.q, 0);
+    const uno = righe.length === 1 ? righe[0] : null, aperto = !uno && ui.storicoAperti?.has(ev.k);
+    html += `<div class="ev ${aperto ? 'aperto' : ''}"><button type="button" class="ev-testa" ${uno ? `data-a="articolo" data-codice="${esc(uno.codice)}"` : `data-a="ev" data-k="${esc(ev.k)}"`}>
+        <span class="m-ico" style="background:${col}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg></span>
+        <span class="corpo"><b class="taglia">${uno ? esc(uno.codice) + ' · ' : ''}${esc(titoloEvento(ev))}</b><small class="tenue taglia">${ev.data_ora.slice(11, 16)}${uno ? ' · ' + esc(uno.descrizione || '') : ` · ${righe.length} articoli`}${uno && uno.note && ev.gruppo !== 'zip' ? ' · ' + esc(uno.note) : ''}</small></span>
+        <span class="qta ${somma < 0 ? 'meno' : somma > 0 ? 'piu-t' : ''}">${somma > 0 ? '+' : ''}${num(somma)}</span>${uno ? '' : `<span class="ev-freccia">${aperto ? '▴' : '▾'}</span>`}</button>
+      ${aperto ? `<div class="ev-righe">${righe.sort((a, b) => a.q - b.q || a.codice.localeCompare(b.codice)).map((r) => `<button type="button" class="ev-r" data-a="articolo" data-codice="${esc(r.codice)}"><span class="corpo"><b>${esc(r.codice)}</b><small class="tenue taglia">${esc(r.descrizione || '')}</small></span><span class="qta ${r.q < 0 ? 'meno' : r.q > 0 ? 'piu-t' : ''}">${r.q > 0 ? '+' : ''}${num(r.q)}</span></button>`).join('')}</div>` : ''}</div>`;
   }
   if (giorno) html += '</div>';
+  const mesi = [...new Set(g.s.movimenti.map((m) => (m.data_ora || '').slice(0, 7)))].filter(Boolean).sort().reverse();
   return `
   <h1>Storico</h1>
-  <label class="cerca">${ico.cerca}<span class="nascosto">Cerca nello storico</span><input id="cerca-st" type="search" placeholder="Codice o descrizione" value="${esc(ui.cercaStorico)}" data-input="cerca-storico" autocomplete="off"></label>
-  <div class="chips">${chip('tutti', 'Tutto')}${chip('zip', 'Scarichi ZIP')}${chip('rif', 'Rifornimenti')}${chip('mag', 'Magazzino')}${chip('corr', 'Correzioni')}${chip('imp', 'Storico importato')}</div>
-  <div class="campo"><label for="st-mese">Mese</label><select id="st-mese" data-a-cambio="st-mese"><option value="">Tutti i mesi</option>${[...new Set(g.s.movimenti.map((m) => (m.data_ora || '').slice(0, 7)))].filter(Boolean).sort().reverse().map((m) => `<option value="${m}" ${ui.meseStorico === m ? 'selected' : ''}>${new Date(m + '-15').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</option>`).join('')}</select></div>
-  <div class="riga-titolo" style="align-items:center"><span class="tenue">${num(tutti.length)} movimenti</span><span class="affianca" style="flex:0 0 auto"><button type="button" class="btn vuoto piccolo" data-a="esporta-storico">Esporta</button>${ui.meseStorico ? '<button type="button" class="btn pericolo piccolo" data-a="cancella-mese">Cancella il mese</button>' : ''}</span></div>
+  <label class="cerca">${ico.cerca}<span class="nascosto">Cerca nello storico</span><input id="cerca-st" type="search" placeholder="Cerca un articolo" value="${esc(ui.cercaStorico)}" data-input="cerca-storico" autocomplete="off"></label>
+  <div class="chips">${chip('tutti', 'Tutto')}${chip('zip', 'Prelievi')}${chip('rif', 'Rifornimenti')}${chip('ctrl', 'Controlli')}${chip('corr', 'Correzioni')}${chip('imp', 'Storico vecchio')}</div>
+  <div class="st-somme"><div><span>Prelevati</span><strong class="meno">${num(-tot('zip'))}</strong></div><div><span>Riportati</span><strong class="piu-t">${num(tot('rif'))}</strong></div><div><span>Eventi</span><strong>${num(eventi.length)}</strong></div></div>
+  <div class="st-barra"><select id="st-mese" data-a-cambio="st-mese" aria-label="Mese"><option value="">Tutti i mesi</option>${mesi.map((m) => `<option value="${m}" ${ui.meseStorico === m ? 'selected' : ''}>${new Date(m + '-15').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</option>`).join('')}</select>
+    <button type="button" class="btn vuoto piccolo" data-a="esporta-storico">Esporta</button>${ui.meseStorico ? '<button type="button" class="btn pericolo piccolo" data-a="cancella-mese">Cancella</button>' : ''}</div>
+  ${filtro === 'tutti' ? `<label class="interruttore"><input type="checkbox" data-a-cambio="st-interni" ${interni ? 'checked' : ''}> Mostra anche gli spostamenti tra distributore e magazzino</label>` : ''}
   ${html || '<div class="vuoto-msg">Nessun movimento.</div>'}
-  ${tutti.length > mostra.length ? '<button type="button" class="btn vuoto" data-a="altri-storico">Mostra altri</button>' : ''}`;
+  ${eventi.length > mostra.length ? '<button type="button" class="btn vuoto" data-a="altri-storico">Mostra altri</button>' : ''}`;
 }
 
 function altro() {
@@ -1239,6 +1287,7 @@ const azioni = {
   'zip': (el) => foglioZip(el.dataset.nome),
   'filtro': (el) => { ui.filtro = el.dataset.filtro; disegna(); },
   'tipo-storico': (el) => { ui.tipoStorico = el.dataset.tipo; ui.quantiStorico = 150; disegna(); },
+  'ev': (el) => { const a = (ui.storicoAperti ||= new Set()); if (a.has(el.dataset.k)) a.delete(el.dataset.k); else a.add(el.dataset.k); disegna(); },
   'altri-storico': () => { ui.quantiStorico += 300; disegna(); },
   // + e − vanno avanti di una spira (o di un blister): si riempiono spire intere
   'meno': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.max(0, Math.ceil(b.quantita / n) * n - n))); },
@@ -1292,6 +1341,7 @@ document.addEventListener('change', (e) => {
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
   if (t.dataset.aCambio === 'ctrl-data') { ui.controllo.data = t.value; }
+  if (t.dataset.aCambio === 'st-interni') { ui.storicoInterni = t.checked; disegna(); }
   if (t.dataset.aCambio === 'st-mese') { ui.meseStorico = t.value; ui.quantiStorico = 150; disegna(); }
   if (t.dataset.file === 'storico' && t.files.length) importaFileStorico([...t.files]);
   if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value ? piuGiorni(t.value, 1) : ''; g.s.aggiornato = new Date().toISOString(); }, `Prelievi presi dal ${isoIta(t.value)}.`);

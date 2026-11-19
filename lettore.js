@@ -138,6 +138,19 @@ export function leggiRiga(L) {
   return decodifica128(r) || decodificaEan(r) || (rr && (decodifica128(rr) || decodificaEan(rr))) || null;
 }
 
+// iPhone chiede il permesso della fotocamera a ogni nuova apertura: la teniamo "in pausa" per qualche minuto,
+// così aprendola di nuovo non lo richiede. Si spegne davvero dopo 3 minuti o quando l'app va in secondo piano.
+let tenuto = null, spegni = null;
+function spegniDavvero() { clearTimeout(spegni); tenuto?.getTracks().forEach((t) => t.stop()); tenuto = null; }
+document.addEventListener('visibilitychange', () => { if (document.hidden && !document.getElementById('lettore')) spegniDavvero(); });
+async function prendiFotocamera() {
+  clearTimeout(spegni);
+  if (tenuto && tenuto.getVideoTracks().some((t) => t.readyState === 'live')) { tenuto.getTracks().forEach((t) => { t.enabled = true; }); return tenuto; }
+  tenuto = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+  return tenuto;
+}
+function lasciaFotocamera() { tenuto?.getTracks().forEach((t) => { t.enabled = false; }); clearTimeout(spegni); spegni = setTimeout(spegniDavvero, 180000); }
+
 /** Apre la fotocamera a tutto schermo; chiama trovato(testo) alla prima lettura sicura. */
 export async function apriLettore(trovato, titolo = 'Inquadra il barcode', opz = {}) {
   const box = document.createElement('div');
@@ -150,13 +163,13 @@ export async function apriLettore(trovato, titolo = 'Inquadra il barcode', opz =
   document.body.appendChild(box);
   const video = box.querySelector('video'), stato = box.querySelector('.let-stato');
   let flusso = null, attivo = true, timer = null;
-  const chiudi = () => { attivo = false; clearTimeout(timer); flusso?.getTracks().forEach((t) => t.stop()); box.remove(); opz.chiuso?.(); };
+  const chiudi = () => { attivo = false; clearTimeout(timer); video.srcObject = null; lasciaFotocamera(); box.remove(); opz.chiuso?.(); };
   let fermo = false, ignora = '', ignoraFino = 0;
   // modalità continua: dopo la lettura la fotocamera resta aperta e si riprende con riprendi()
   const riprendi = (ultimoLetto) => { box.classList.remove('preso'); fermo = false; ignora = ultimoLetto || ''; ignoraFino = performance.now() + 3000; stato.textContent = 'Cerco…'; };
   box.querySelector('.let-chiudi').onclick = chiudi;
   try {
-    flusso = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    flusso = await prendiFotocamera();
   } catch (e) {
     stato.textContent = e.name === 'NotAllowedError' ? 'Permesso fotocamera negato: abilitalo in Impostazioni iPhone → Safari → Fotocamera.' : 'Fotocamera non disponibile: ' + e.message;
     return;
