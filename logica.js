@@ -927,6 +927,26 @@ export class Gestionale {
     return { articoli: righe.length, pezzi };
   }
 
+  /** Cambia il codice AS400 di un articolo ovunque: giacenze, storico, abbinamenti, rifornimento, controlli. */
+  rinominaArticolo(vecchio, nuovo) {
+    nuovo = String(nuovo || '').trim().toUpperCase();
+    const p = this.s.prodotti[vecchio];
+    if (!p) throw new Error('Articolo non trovato.');
+    if (!nuovo) throw new Error('Scrivi il codice AS400.');
+    if (nuovo === vecchio) return vecchio;
+    if (this.s.prodotti[nuovo]) throw new Error(`Il codice ${nuovo} esiste già.`);
+    delete this.s.prodotti[vecchio]; p.codice = nuovo; this.s.prodotti[nuovo] = p;
+    const cambia = (o, k = 'codice') => { if (o && o[k] === vecchio) o[k] = nuovo; };
+    this.s.abbinamenti.forEach((a) => cambia(a)); this.s.bozza.forEach((b) => cambia(b)); this.s.movimenti.forEach((m) => cambia(m));
+    this.s.controlli.forEach((c) => cambia(c)); (this.s.esiti_controlli || []).forEach((e) => (e.ammanchi || []).forEach((a) => cambia(a)));
+    this.s.rifornimenti.forEach((r) => (r.righe || []).forEach((x) => cambia(x)));
+    this.s.zip.forEach((z) => { (z.dettaglio || []).forEach((r) => cambia(r, 'cod')); if (z.consumi && vecchio in z.consumi) { z.consumi[nuovo] = z.consumi[vecchio]; delete z.consumi[vecchio]; } });
+    for (const c of Object.values(this.s.consumi)) if (vecchio in c) { c[nuovo] = (c[nuovo] || 0) + c[vecchio]; delete c[vecchio]; }
+    this._mov('MODIFICA_MANUALE', nuovo, p.descrizione, 0, p.quantita, p.quantita, 'Modifica a mano', `Codice AS400 cambiato: ${vecchio} → ${nuovo}`);
+    this._tocca();
+    return nuovo;
+  }
+
   modificaArticolo(codice, campi) {
     const p = this.s.prodotti[codice];
     if (!p) throw new Error('Articolo non trovato.');

@@ -322,3 +322,10 @@ html[data-colori="indaco"] { --fondo: #0b0b1a; --scheda: #16162e; --scheda2: #1c
 .passi i { font-style: normal; width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; background: var(--chip); }
 .passi .on { color: var(--testo); } .passi .on i { background: linear-gradient(135deg, var(--a1), var(--a2)); color: #fff; } .passi .fatto i { background: var(--verde); color: #10291f; }
 .stampa.prepara { position: sticky; bottom: calc(76px + var(--basso)); z-index: 4; margin-top: 4px; }
+
+.codici { gap: 0; padding: 4px 14px; }
+.cod-riga { display: flex; align-items: center; gap: 10px; padding: 10px 0; } .cod-riga + .cod-riga { border-top: 1px solid var(--linea); } .cod-riga.alto { align-items: flex-start; }
+.cod-et { width: 46px; flex-shrink: 0; font-size: 11px; font-weight: 800; letter-spacing: .06em; color: var(--tit); padding-top: 2px; }
+.cod-val { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; } .cod-val small { color: var(--tenue); }
+.cod-voce { display: flex; flex-direction: column; background: none; border: 0; padding: 0; color: var(--testo); text-align: left; } .cod-voce small { color: var(--tenue); font-size: 12px; }
+.cod-bar { display: flex; gap: 10px; align-items: baseline; } .codici .link { background: none; border: 0; padding: 2px 0; color: var(--rosa); font-weight: 700; font-size: 14px; }
