@@ -181,7 +181,7 @@ export function barre128(testo) {
 export function statoVuoto() {
   return {
     formato: 'distributore-web', versione: 1, prodotti: {}, abbinamenti: [], ignorate: [], movimenti: [],
-    consumi: {}, zip: [], bozza: [], sospese: [], giorni_ignorati: [], rifornimenti: [],
+    consumi: {}, zip: [], bozza: [], sospese: [], giorni_ignorati: [], rifornimenti: [], controlli: [], esiti_controlli: [],
     impostazioni: { zip_partenza: '', drive_cartella_id: '', drive_cartella_nome: '' }, aggiornato: '',
   };
 }
@@ -346,6 +346,140 @@ export class Gestionale {
     return { giorni, righe, totale: righe.reduce((t, r) => t + r.totale, 0), perGiorno: giorni.map((_, i) => righe.reduce((t, r) => t + r.giorni[i], 0)) };
   }
 
+  // ------------------------------------------------------------ CONTROLLO SUL POSTO (come il programma)
+  // 1. al salvataggio i mancanti si tolgono SUBITO dal distributore e vanno nel rifornimento, meno quelli
+  //    già tolti dagli ZIP importati dopo l'ultimo rifornimento fino a quel giorno;
+  // 2. quando arriva uno ZIP con prelievi di quel giorno (o prima), quei prelievi erano già compresi nei
+  //    pezzi tolti: si rimettono (fino ai pezzi tolti), così nulla si toglie due volte;
+  // 3. con lo ZIP di quel giorno il controllo si chiude: quello che nessuno ZIP ha spiegato è l'ammanco.
+  _bozzaMeno(codice, q) {
+    const b = this.s.bozza.find((x) => x.codice === codice);
+    if (!b) return;
+    b.proposta = Math.max(0, b.proposta - q); b.quantita = Math.max(0, b.quantita - q);
+    if (b.proposta <= 0 && b.quantita <= 0) this.s.bozza = this.s.bozza.filter((x) => x !== b);
+  }
+  _bozzaPiu(codice, q) {
+    const p = this.s.prodotti[codice];
+    let b = this.s.bozza.find((x) => x.codice === codice);
+    if (b) { b.proposta += q; b.quantita += q; } else { b = { codice, descrizione: p.descrizione, proposta: q, quantita: q }; this.s.bozza.push(b); }
+    this._quadraBlister(b);
+  }
+  _prelevatiFinoA(giorno, codice) {
+    let t = 0;
+    for (const z of this.s.zip) {
+      if (z.rifornito || z.nascosto || !z.dal || z.dal > giorno) continue;
+      for (const m of this.s.movimenti) if (m.tipo === 'SCARICO_ZIP' && m.origine === z.nome && m.codice === codice) t += -Number(m.quantita || 0);
+    }
+    return t;
+  }
+  _zipDelGiorno(giorno) { return [...this.s.zip].reverse().find((z) => !z.nascosto && z.dal && z.dal <= giorno && (z.al || z.dal) >= giorno); }
+
+  controlliInAttesa() {
+    const per = {};
+    for (const c of this.s.controlli) if (c.stato === 'attesa') (per[c.data] ||= []).push(c);
+    return Object.entries(per).sort(([a], [b]) => a.localeCompare(b)).map(([data, righe]) => ({ data, righe, pezzi: righe.reduce((t, r) => t + r.mancanti, 0) }));
+  }
+
+  salvaControllo(giorno, voci) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(giorno || '')) throw new Error('Data del controllo non valida.');
+    if (this.s.controlli.some((c) => c.data === giorno && c.stato === 'chiuso')) throw new Error('Il controllo di quel giorno è già stato confrontato con lo ZIP.');
+    const pulite = Object.entries(voci || {}).map(([c, q]) => [c, Math.round(Number(q))]).filter(([, q]) => q > 0);
+    for (const [c] of pulite) if (!this.s.prodotti[c]) throw new Error(`L'articolo ${c} non esiste.`);
+    const ora = adessoIso(), gg = isoIta(giorno);
+    this._annullaControllo(giorno, ora);
+    let tolti = 0;
+    for (const [codice, mancanti] of pulite) {
+      const gia = this._prelevatiFinoA(giorno, codice);
+      const scala = Math.max(0, mancanti - gia);
+      if (scala) {
+        const p = this.s.prodotti[codice], prima = p.quantita;
+        p.quantita -= scala;
+        this._mov('CONTROLLO_POSTO', codice, p.descrizione, -scala, prima, p.quantita, `Controllo sul posto del ${gg}`, `Mancanti ${mancanti}, già tolti dagli ZIP ${gia}: tolti subito ${scala}`, ora);
+        this._bozzaPiu(codice, scala);
+        tolti += scala;
+      }
+      this.s.controlli.push({ data: giorno, codice, mancanti, scalati: scala, assorbiti: 0, stato: 'attesa', salvato_il: ora });
+    }
+    const esiti = this._chiudiControlli(ora);
+    this.riempiDaMagazzino('Dopo il controllo sul posto');
+    this._tocca();
+    return { articoli: pulite.length, tolti, esiti };
+  }
+
+  eliminaControllo(giorno) { this._annullaControllo(giorno, adessoIso()); this._tocca(); }
+
+  _annullaControllo(giorno, ora) {
+    const righe = this.s.controlli.filter((c) => c.data === giorno && c.stato === 'attesa');
+    for (const r of righe) {
+      const netto = (r.scalati || 0) - (r.assorbiti || 0);
+      if (!netto) continue;
+      const p = this.s.prodotti[r.codice], prima = p.quantita;
+      p.quantita += netto;
+      this._bozzaMeno(r.codice, netto);
+      this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, netto, prima, p.quantita, `Controllo sul posto del ${isoIta(giorno)}`, 'Controllo corretto o eliminato: pezzi rimessi', ora);
+    }
+    this.s.controlli = this.s.controlli.filter((c) => !(c.data === giorno && c.stato === 'attesa'));
+  }
+
+  _assorbiControlli(nomeZip, dal, ora) {
+    if (!dal) return;
+    for (const r of this.s.controlli) {
+      if (r.stato !== 'attesa' || !(r.scalati > (r.assorbiti || 0)) || r.data < dal) continue;
+      const pre = this.s.movimenti.filter((m) => m.tipo === 'SCARICO_ZIP' && m.origine === nomeZip && m.codice === r.codice).reduce((t, m) => t - Number(m.quantita || 0), 0);
+      const gia = (r.da_zip || {})[nomeZip] || 0;
+      const assorbi = Math.min(r.scalati - (r.assorbiti || 0), pre - gia);
+      if (assorbi <= 0) continue;
+      const p = this.s.prodotti[r.codice], prima = p.quantita;
+      p.quantita += assorbi;
+      this._bozzaMeno(r.codice, assorbi);
+      this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, assorbi, prima, p.quantita, nomeZip, `Già tolti dal controllo sul posto del ${isoIta(r.data)}: non si tolgono due volte`, ora);
+      r.assorbiti = (r.assorbiti || 0) + assorbi;
+      (r.da_zip ||= {})[nomeZip] = gia + assorbi;
+    }
+  }
+
+  _chiudiControlli(ora) {
+    const esiti = [];
+    const giorni = [...new Set(this.s.controlli.filter((c) => c.stato === 'attesa').map((c) => c.data))].sort();
+    for (const giorno of giorni) {
+      const z = this._zipDelGiorno(giorno);
+      if (!z) continue;
+      let coperti = 0; const ammanchi = [];
+      for (const r of this.s.controlli.filter((c) => c.data === giorno && c.stato === 'attesa')) {
+        const amm = (r.scalati || 0) - (r.assorbiti || 0);
+        const pre = r.mancanti - amm;
+        if (amm > 0) ammanchi.push({ codice: r.codice, descrizione: (this.s.prodotti[r.codice] || {}).descrizione || '', pezzi: amm, mancanti: r.mancanti, prelevati: pre });
+        else coperti++;
+        Object.assign(r, { stato: 'chiuso', prelevati: pre, ammanco: amm, zip: z.nome, chiuso_il: ora });
+      }
+      esiti.push({ data: giorno, zip: z.nome, coperti, ammanchi, visto: false });
+    }
+    if (esiti.length) this.s.esiti_controlli = [...this.s.esiti_controlli, ...esiti].slice(-20);
+    return esiti;
+  }
+
+  // ------------------------------------------------------------ RIEPILOGO DELLA SETTIMANA (come il programma)
+  riepilogoSettimana(oggi = oggiIso()) {
+    const d = new Date(oggi + 'T12:00:00');
+    const lunedi = piuGiorni(oggi, -((d.getDay() + 6) % 7) - 7), domenica = piuGiorni(lunedi, 6);
+    const primaDal = piuGiorni(lunedi, -7), primaAl = piuGiorni(lunedi, -1);
+    const somma = (da, a) => { let t = 0; for (const [g, c] of Object.entries(this.s.consumi)) if (g >= da && g <= a) for (const v of Object.values(c)) t += v; return t; };
+    const pezzi = somma(lunedi, domenica), pezziPrima = somma(primaDal, primaAl);
+    const w = this.prelieviSettimana(lunedi);
+    const rif = this.s.rifornimenti.filter((r) => r.data_ora.slice(0, 10) >= lunedi && r.data_ora.slice(0, 10) <= domenica);
+    const rifProgramma = new Set(this.s.movimenti.filter((m) => m.tipo === 'RIFORNIMENTO' && m.data_ora.slice(0, 10) >= lunedi && m.data_ora.slice(0, 10) <= domenica && !this.s.rifornimenti.some((r) => r.data_ora === m.data_ora)).map((m) => m.data_ora));
+    const isoW = (() => { const t = new Date(lunedi + 'T12:00:00'); t.setDate(t.getDate() + 3); const a = t.getFullYear(); const s1 = new Date(a, 0, 4); return `${a}-${String(1 + Math.round(((t - s1) / 86400000 - 3 + ((s1.getDay() + 6) % 7)) / 7)).padStart(2, '0')}`; })();
+    return {
+      settimana: isoW, dal: lunedi, al: domenica, pezzi, pezzi_prima: pezziPrima,
+      variazione: pezziPrima ? Math.round((pezzi - pezziPrima) * 100 / pezziPrima) : null,
+      articoli: w.righe.length, giorni: w.giorni.map((g, i) => ({ giorno: g, pezzi: w.perGiorno[i] })),
+      piu_prelevati: w.righe.slice(0, 5), rifornimenti: rif.length + rifProgramma.size,
+      pezzi_riforniti: rif.reduce((t, r) => t + r.pezzi, 0) + this.s.movimenti.filter((m) => m.tipo === 'RIFORNIMENTO' && rifProgramma.has(m.data_ora)).reduce((t, m) => t + m.quantita, 0),
+      giorni_mancanti: this.giorniMancanti(oggi).filter((g) => g >= lunedi && g <= domenica),
+      sotto_scorta: this.elenco().filter((p) => p.sotto).length,
+    };
+  }
+
   zipGiaImportato(nome, sha) { return this.s.zip.find((z) => (sha && z.sha === sha) || z.nome === nome); }
 
   /** Applica uno ZIP letto con leggiZip. Ritorna un riepilogo. */
@@ -373,9 +507,11 @@ export class Gestionale {
     const completo = !letto.errori.length && pezziPdf === pezzi + pezziSospesi + ignorati;
     this.s.zip.push({ nome: letto.nome, sha: letto.sha, dal: letto.dal, al: letto.al, importato_il: ora, righe: letto.righe.length,
       pezzi, pezzi_pdf: pezziPdf, sospesi: pezziSospesi, ignorati, errori: letto.errori, completo, dettaglio, drive: driveId });
+    this._assorbiControlli(letto.nome, letto.dal, ora);
+    const esitiControlli = this._chiudiControlli(ora);
     this.riempiDaMagazzino('Dopo lo scarico degli ZIP');
     this._tocca();
-    return { ok: true, pezzi, pezzi_pdf: pezziPdf, righe: letto.righe.length, sospese, completo, errori: letto.errori };
+    return { ok: true, pezzi, pezzi_pdf: pezziPdf, righe: letto.righe.length, sospese, completo, errori: letto.errori, controlli: esitiControlli };
   }
 
   _scarica(codice, q, letto, ora, riga = null) {

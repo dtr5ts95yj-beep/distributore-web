@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.3';
+const VERSIONE = '1.4';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -25,7 +25,7 @@ const archivio = {
 
 // ------------------------------------------------------------------ stato della pagina
 let g = null;                       // Gestionale
-const ui = { scheda: 'oggi', pagina: '', mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
+const ui = { scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (n) => Number(n || 0).toLocaleString('it-IT');
@@ -126,7 +126,7 @@ function disegna() {
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { prelievi, storico, abbinamenti, impostazioni, backup };
+  const pagine = { prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo };
   s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
@@ -181,6 +181,57 @@ function strisciaZip() {
   </div>`;
 }
 
+function esitiNonVisti() {
+  const e = g.s.esiti_controlli.filter((x) => !x.visto);
+  if (!e.length) return '';
+  return e.map((x, i) => `<div class="carta ${x.ammanchi.length ? 'avviso-carta' : ''}">
+    <b>Controllo sul posto del ${isoIta(x.data)}: confrontato con lo ZIP</b>
+    <small class="tenue">${x.coperti} ${x.coperti === 1 ? 'articolo spiegato' : 'articoli spiegati'} dai prelievi${x.ammanchi.length ? `, ${x.ammanchi.length} con ammanco:` : '. Nessun ammanco.'}</small>
+    ${x.ammanchi.map((a) => `<div class="riga-titolo" style="align-items:center"><span><b>${esc(a.codice)}</b> <small class="tenue">${esc(a.descrizione)}</small></span><b style="color:var(--arancio)">−${a.pezzi}</b></div><small class="tenue">mancavano ${a.mancanti}, i prelievi ne spiegano ${a.prelevati}: ${a.pezzi} ${a.pezzi === 1 ? 'pezzo è un ammanco' : 'pezzi sono un ammanco'}, già nel rifornimento</small>`).join('')}
+    <button type="button" class="btn vuoto piccolo" data-a="esito-visto" data-data="${x.data}">Ok, visto</button></div>`).join('');
+}
+
+function controllo() {
+  const c = ui.controllo;
+  if (!c.data) c.data = oggiIso();
+  const attesa = g.controlliInAttesa();
+  const codici = Object.keys(g.s.prodotti).sort();
+  const righe = Object.entries(c.righe);
+  return `<h1>Controllo sul posto</h1>
+  <div class="tenue">Al distributore segna i pezzi che mancano. Li tolgo subito e li metto nel rifornimento; quando arriva lo ZIP di quel giorno confronto e trovo l'eventuale ammanco, senza togliere niente due volte.</div>
+  <div class="carta">
+    <div class="campo"><label for="ctrl-data">Giorno del controllo</label><input id="ctrl-data" type="date" value="${c.data}" data-a-cambio="ctrl-data"></div>
+    <div class="campo"><label for="ctrl-art">Articolo</label><select id="ctrl-art"><option value="">Scegli l'articolo…</option>${codici.map((k) => `<option value="${esc(k)}">${esc(k)} – ${esc(g.prodotto(k).descrizione)}</option>`).join('')}</select></div>
+    <div class="affianca"><div class="campo"><label for="ctrl-q">Pezzi mancanti</label><input id="ctrl-q" type="number" inputmode="numeric" min="1" value="1"></div>
+      <button type="button" class="btn secondario" data-a="ctrl-aggiungi" style="align-self:flex-end">Aggiungi</button></div>
+    ${righe.length ? `<div class="lista">${righe.map(([k, q]) => `<div class="voce"><span class="corpo"><b>${esc(k)}</b><small class="taglia">${esc(g.prodotto(k)?.descrizione || '')}</small></span><b style="font-size:18px">${q}</b>
+      <button type="button" class="btn vuoto piccolo" data-a="ctrl-togli" data-codice="${esc(k)}" aria-label="Togli ${esc(k)}">Togli</button></div>`).join('')}</div>
+      <button type="button" class="btn" data-a="ctrl-salva">Salva il controllo (${righe.reduce((t, [, q]) => t + q, 0)} pezzi)</button>` : '<small class="tenue">Aggiungi gli articoli con i pezzi mancanti.</small>'}
+  </div>
+  ${attesa.length ? `<h2>In attesa dello ZIP</h2>${attesa.map((a) => `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(a.data + 'T12:00').getDay()]} ${isoIta(a.data)}</b><span class="tenue">${a.pezzi} pezzi</span></div>
+    ${a.righe.map((r) => `<small><b>${esc(r.codice)}</b> mancanti ${r.mancanti} · tolti ${r.scalati}${r.assorbiti ? ` · rimessi dagli ZIP ${r.assorbiti}` : ''}</small>`).join('')}
+    <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="ctrl-modifica" data-data="${a.data}">Modifica</button><button type="button" class="btn pericolo piccolo" data-a="ctrl-elimina" data-data="${a.data}">Elimina</button></div></div>`).join('')}` : ''}
+  ${g.s.esiti_controlli.length ? `<h2>Controlli chiusi</h2><div class="lista">${g.s.esiti_controlli.slice().reverse().map((x) => `<div class="voce"><span class="corpo"><b>${isoIta(x.data)}</b><small>${x.coperti} spiegati${x.ammanchi.length ? ` · ammanchi: ${x.ammanchi.map((a) => `${esc(a.codice)} −${a.pezzi}`).join(', ')}` : ' · nessun ammanco'}</small></span></div>`).join('')}</div>` : ''}`;
+}
+
+function riepilogo() {
+  const r = g.riepilogoSettimana();
+  const max = Math.max(1, ...r.giorni.map((x) => x.pezzi));
+  const SIGLE = ['Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa', 'Do'];
+  const freccia = r.variazione == null ? '' : r.variazione > 0 ? `<span style="color:var(--verde)">▲ ${r.variazione}%</span>` : r.variazione < 0 ? `<span style="color:var(--rosso)">▼ ${-r.variazione}%</span>` : 'uguale';
+  return `<h1>Com'è andata la settimana</h1>
+  <div class="sopra">Dal ${isoIta(r.dal)} al ${isoIta(r.al)}</div>
+  <div class="numeri">
+    <div><span>Prelevati</span><strong style="color:var(--rosa)">${num(r.pezzi)}</strong><span>${freccia}${r.pezzi_prima ? ` · erano ${num(r.pezzi_prima)}` : ''}</span></div>
+    <div><span>Articoli</span><strong>${r.articoli}</strong><span>diversi</span></div>
+    <div><span>Rifornimenti</span><strong>${r.rifornimenti}</strong><span>${r.rifornimenti ? `${num(r.pezzi_riforniti)} pezzi` : ''}</span></div>
+  </div>
+  <div class="carta"><div class="grafico sett7">${r.giorni.map((x, i) => `<div><span class="v">${x.pezzi || ''}</span><span class="b" style="height:${Math.round(x.pezzi * 100 / max)}%;${r.giorni_mancanti.includes(x.giorno) ? 'background:repeating-linear-gradient(45deg,#ff8a8a 0 4px,transparent 4px 8px)' : ''}"></span><span class="e">${SIGLE[i]}</span></div>`).join('')}</div></div>
+  ${r.piu_prelevati.length ? `<h2>I più prelevati</h2><div class="lista">${r.piu_prelevati.map((x, i) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(x.codice)}"><b style="color:var(--rosa);width:22px">${i + 1}</b><span class="corpo"><b>${esc(x.codice)}</b><small class="taglia">${esc(x.descrizione)}</small></span><b style="font-size:18px">${num(x.totale)}</b></button>`).join('')}</div>` : ''}
+  ${r.giorni_mancanti.length ? `<div class="carta avviso-carta">${r.giorni_mancanti.length} ${r.giorni_mancanti.length === 1 ? 'giorno' : 'giorni'} senza ZIP: ${r.giorni_mancanti.map(isoIta).join(', ')}</div>` : ''}
+  ${r.sotto_scorta ? `<div class="carta">Adesso ${r.sotto_scorta} ${r.sotto_scorta === 1 ? 'articolo è' : 'articoli sono'} sotto scorta. <button type="button" class="btn vuoto piccolo" data-a="vedi-sotto">Vedi</button></div>` : ''}`;
+}
+
 function oggi() {
   const d = new Date();
   const el = g.elenco();
@@ -195,6 +246,7 @@ function oggi() {
   ${listaCaricamento()}
   ${strisciaZip()}
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
+  ${esitiNonVisti()}
   <div class="numeri">
     <div><span>Prelevati</span><strong style="color:var(--rosa)">${num(g.prelevatiSettimana())}</strong><span>questa sett.</span></div>
     <div><span>Sotto scorta</span><strong style="color:${sotto.length ? 'var(--arancio)' : 'var(--verde)'}">${sotto.length}</strong><span>articoli</span></div>
@@ -345,6 +397,8 @@ function altro() {
   return `
   <h1>Altro</h1>
   <div class="lista">
+    ${voce('controllo', 'Controllo sul posto', g.controlliInAttesa().length ? `${g.controlliInAttesa().length} in attesa dello ZIP` : 'Segna i pezzi mancanti al distributore')}
+    ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('prelievi', 'Prelievi della settimana', `${num(g.prelevatiSettimana())} pezzi questa settimana, articolo per articolo`)}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti, con ricerca e filtri`)}
     ${voce('abbinamenti', 'Abbinamenti', `${g.s.abbinamenti.length} descrizioni del PDF collegate ai codici AS400`)}
@@ -586,6 +640,23 @@ const azioni = {
   'articolo': (el) => foglioArticolo(el.dataset.codice),
   'modifica-articolo': (el) => foglioArticolo(el.dataset.codice, true),
   'giorno-zip': (el) => foglioGiorno(el.dataset.giorno),
+  'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
+  'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
+  'ctrl-aggiungi': () => {
+    const k = $('#ctrl-art').value, q = Math.round(Number($('#ctrl-q').value));
+    if (!k) { avviso('Scegli l\'articolo.', true); return; }
+    if (!(q > 0)) { avviso('Scrivi i pezzi mancanti.', true); return; }
+    ui.controllo.righe[k] = q; disegna();
+  },
+  'ctrl-togli': (el) => { delete ui.controllo.righe[el.dataset.codice]; disegna(); },
+  'ctrl-salva': () => {
+    const c = ui.controllo;
+    cambia(() => g.salvaControllo(c.data, c.righe), (r) => `Controllo salvato: ${r.tolti} pezzi tolti dal distributore e messi nel rifornimento.${r.esiti.length ? ' Confrontato subito con lo ZIP già arrivato.' : ''}`)
+      .then((r) => { if (r) ui.controllo = { data: c.data, righe: {} }; disegna(); });
+  },
+  'ctrl-modifica': (el) => { const d = el.dataset.data; ui.controllo = { data: d, righe: Object.fromEntries(g.s.controlli.filter((x) => x.data === d && x.stato === 'attesa').map((x) => [x.codice, x.mancanti])) }; disegna(); window.scrollTo(0, 0); },
+  'ctrl-elimina': (el) => { if (confirm(`Elimino il controllo del ${isoIta(el.dataset.data)}? I pezzi tolti tornano nel distributore.`)) cambia(() => g.eliminaControllo(el.dataset.data), 'Controllo eliminato.'); },
+  'vedi-sotto': () => { ui.scheda = 'articoli'; ui.filtro = 'sotto'; ui.pagina = ''; disegna(); },
   'pagina': (el) => { ui.pagina = el.dataset.pagina; disegna(); window.scrollTo(0, 0); },
   'indietro': () => { ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
   'mese': (el) => { const [a, m] = ui.mese.split('-').map(Number); const d = new Date(a, m - 1 + Number(el.dataset.d), 1); ui.mese = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; disegna(); },
@@ -638,6 +709,7 @@ document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
+  if (t.dataset.aCambio === 'ctrl-data') { ui.controllo.data = t.value; }
   if (t.dataset.aCambio === 'partenza') cambia(() => { g.s.impostazioni.zip_partenza = t.value ? piuGiorni(t.value, 1) : ''; g.s.aggiornato = new Date().toISOString(); }, `Prelievi presi dal ${isoIta(t.value)}.`);
 });
 document.addEventListener('submit', (e) => {
@@ -664,7 +736,16 @@ async function avvia() {
   if (!g) return;
   if (ritorno.startsWith('errore:') && !/interaction_required|login_required|consent_required/.test(ritorno)) avviso('Google: accesso non riuscito (' + ritorno.slice(7) + ').', true);
   if (ritorno.startsWith('errore:')) { ui.drive = { stato: 'accedi', msg: 'Tocca per aggiornare da Google Drive', nuovi: [] }; disegna(); return; }
+  mostraRiepilogoSettimana();
   if (drive.clientId) sincronizza();
+}
+
+function mostraRiepilogoSettimana() {
+  try {
+    const r = g.riepilogoSettimana();
+    if (!r.pezzi || localStorage.getItem('riepilogo_visto') === r.settimana) return;
+    setTimeout(() => apriFoglio(riepilogo() + `<button type="button" class="btn" data-a="riepilogo-ok" data-settimana="${r.settimana}">Ok</button>`), 800);
+  } catch { /* niente */ }
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 avvia();
