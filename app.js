@@ -470,9 +470,9 @@ function rifornimento() {
     <div class="rif ${b.quantita ? '' : 'spento'}"><button type="button" class="corpo" data-a="articolo" data-codice="${esc(b.codice)}" style="background:none;border:0;text-align:left;padding:4px 0">
         <b>${esc(b.codice)}</b><small class="tenue taglia">${esc(b.descrizione)}</small>
         <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo}</b> / ${b.carico}` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></button>
-      <button type="button" class="passo" aria-label="Uno in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
-      <span class="n">${b.quantita}</span>
-      <button type="button" class="passo piu" aria-label="Uno in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}
+      <button type="button" class="passo" aria-label="${passoSpira(b.codice)} in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
+      <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
+      <button type="button" class="passo piu" aria-label="${passoSpira(b.codice)} in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}
   <button type="button" class="btn vuoto piccolo" data-a="aggiungi-rif">+ Aggiungi un articolo a mano</button>
   ${attive.length ? `<div class="azioni">
     <button type="button" class="btn" data-a="pdf">${ico.mail} Crea PDF con barcode e mandalo</button>
@@ -520,6 +520,11 @@ function prelievi() {
     ${w.giorni.length ? `<div class="grafico">${w.giorni.map((d, i) => `<div><span class="v">${w.perGiorno[i] || ''}</span><span class="b" style="height:${Math.round(w.perGiorno[i] * 100 / max)}%"></span><span class="e">${Number(d.slice(8))}</span></div>`).join('')}</div>` : ''}</div>
   <div class="lista">${w.righe.map((r) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(r.codice)}"><span class="corpo"><b>${esc(r.codice)}</b><small class="taglia">${esc(r.descrizione)}</small>
     <small class="tenue">${Object.entries(r.giorni).map(([d, q]) => `${sig(d)}: ${q}`).join(' · ')}</small></span><b style="font-size:18px">${num(r.totale)}</b></button>`).join('') || '<div class="vuoto-msg">Nessun prelievo dall\'ultimo rifornimento.</div>'}</div>`;
+}
+
+function passoSpira(codice) {
+  const p = g.prodotto(codice); if (!p) return 1;
+  return Math.max(1, Number(p.pezzi_spira) || 1, p.in_blister ? Number(p.pezzi_blister) || 1 : 1);
 }
 
 function periodoBozza() {
@@ -1116,8 +1121,9 @@ const azioni = {
   'filtro': (el) => { ui.filtro = el.dataset.filtro; disegna(); },
   'tipo-storico': (el) => { ui.tipoStorico = el.dataset.tipo; ui.quantiStorico = 150; disegna(); },
   'altri-storico': () => { ui.quantiStorico += 300; disegna(); },
-  'meno': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice); cambia(() => g.impostaQuantitaBozza(b.codice, b.quantita - 1)); },
-  'piu': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice); cambia(() => g.impostaQuantitaBozza(b.codice, b.quantita + 1)); },
+  // + e − vanno avanti di una spira (o di un blister): si riempiono spire intere
+  'meno': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.max(0, Math.ceil(b.quantita / n) * n - n))); },
+  'piu': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.floor(b.quantita / n) * n + n)); },
   'pdf': async (el) => { el.disabled = true; try { await creaPdf(); } catch (e) { avviso('PDF non creato: ' + e.message, true); } el.disabled = false; },
   'fatto': async () => {
     const righe = g.s.bozza.filter((b) => b.quantita > 0), pezzi = righe.reduce((t, b) => t + b.quantita, 0);
