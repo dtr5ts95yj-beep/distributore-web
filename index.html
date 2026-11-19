@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#140b26">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Distributore">
+<meta name="robots" content="noindex, nofollow">
+<title>Distributore</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone/apple-touch-icon.png">
+<link rel="icon" href="icone/icona-192.png">
+<link rel="stylesheet" href="app.css">
+<script src="lib/jszip.min.js" defer></script>
+<script src="lib/pdf-lib.min.js" defer></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<main id="schermo" aria-live="polite"></main>
+<nav id="schede" aria-label="Sezioni">
+  <button type="button" data-scheda="oggi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>Oggi</button>
+  <button type="button" data-scheda="articoli"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>Articoli</button>
+  <button type="button" data-scheda="rifornimento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h13v10H3z"/><path d="M16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>Rifornimento</button>
+  <button type="button" data-scheda="storico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Storico</button>
+  <button type="button" data-scheda="altro"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Altro</button>
+</nav>
+<div id="velo" hidden></div>
+<section id="foglio" role="dialog" aria-modal="true" hidden></section>
+<div id="avviso" role="status" hidden></div>
+</body>
+</html>
