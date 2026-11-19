@@ -258,3 +258,22 @@ html[data-colori="indaco"] { --fondo: #0b0b1a; --scheda: #16162e; --scheda2: #1c
 .segmenti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: var(--chip); padding: 4px; border-radius: 14px; }
 .segmenti button { min-height: 42px; border-radius: 11px; border: 0; background: none; color: var(--tenue); font-weight: 700; font-size: 14px; }
 .segmenti button[aria-pressed="true"] { background: var(--viola); color: #fff; }
+
+/* ---------- widget ZIP con i distributorini */
+.zipwid { gap: 10px; }
+.pill { font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 99px; }
+.pill.verde { background: rgba(110, 231, 183, .15); color: var(--verde); } .pill.rosso { background: rgba(255, 107, 129, .16); color: var(--rosso); } .pill.arancio { background: rgba(255, 180, 84, .15); color: var(--arancio); }
+.zip-sommario { display: flex; align-items: center; gap: 12px; } .zip-sommario strong { font-size: 34px; font-weight: 900; }
+.zip-sommario span { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; } .zip-sommario small { font-weight: 500; color: var(--tenue); font-size: 12px; }
+.zipwid .striscia { gap: 6px; row-gap: 8px; }
+.zipwid .tile { position: relative; min-height: 0; gap: 2px; padding: 7px 0 7px; border-radius: 14px; background: linear-gradient(180deg, rgba(110, 231, 183, .16), rgba(110, 231, 183, .05)); box-shadow: inset 0 0 0 1px rgba(110, 231, 183, .25); }
+.zipwid .tile.manca { background: linear-gradient(180deg, rgba(255, 107, 129, .18), rgba(255, 107, 129, .05)); box-shadow: inset 0 0 0 1px rgba(255, 107, 129, .35); }
+.zipwid .tile.controlla { background: linear-gradient(180deg, rgba(255, 180, 84, .18), rgba(255, 180, 84, .05)); box-shadow: inset 0 0 0 1px rgba(255, 180, 84, .35); }
+.zipwid .tile.ignorato, .zipwid .tile.prima { background: rgba(255, 255, 255, .04); box-shadow: none; }
+.zipwid .tile.ieri { box-shadow: inset 0 0 0 2px var(--rosa); }
+.zipwid .tile .sg { font-size: 10px; letter-spacing: .05em; } .zipwid .tile .nr { font-size: 15px; font-weight: 900; line-height: 1; }
+.zipwid .tile .dist { width: 30px; height: 39px; margin: 3px 0 1px; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .35)); }
+.zipwid .tile:not(.manca):not(.prima):not(.ignorato) .dist { animation: dist-su .5s ease both; }
+.zipwid .tile .pz { font-size: 11px; font-weight: 800; color: var(--testo); } .zipwid .tile.manca .pz { color: var(--rosso); }
+@keyframes dist-su { from { transform: translateY(4px); opacity: 0 } }
+.zipwid .tile.manca .pz { font-size: 10px; } .anello small { line-height: 1.35; }

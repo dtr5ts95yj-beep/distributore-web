@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.2';
+const VERSIONE = '2.3';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -44,14 +44,23 @@ const num = (n) => Number(n || 0).toLocaleString('it-IT');
 const GIORNI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 // il distributorino dell'icona, colorato secondo lo stato del giorno
+let _idDist = 0;
 function distributorino(stato) {
-  const ok = stato === 'ok', vuoto = stato === 'manca' || stato === 'prima' || stato === 'ignorato';
-  const col = ok ? ['#ff7fbf', '#ffd166', '#6ee7b7', '#7cc4ff', '#ff7fbf', '#6ee7b7'] : stato === 'controlla' ? Array(6).fill('#ffb454') : Array(6).fill('#4a3d63');
-  const corpo = vuoto ? '#8f86a6' : '#f4f1fb';
-  return `<svg class="dist" viewBox="0 0 24 30" aria-hidden="true"><rect x="1" y="1" width="22" height="28" rx="3.5" fill="${corpo}"/><rect x="3.5" y="3.5" width="12" height="15" rx="1.5" fill="#2a1d45"/>
-    ${col.map((c, i) => `<rect x="${5 + (i % 3) * 3.6}" y="${5.5 + Math.floor(i / 3) * 4.4}" width="2.4" height="2.4" rx=".6" fill="${c}"/>`).join('')}
-    <rect x="5" y="15" width="9" height="1" rx=".5" fill="#6d5f8f"/><rect x="17.5" y="4" width="3.5" height="1.4" rx=".7" fill="#7c5cff"/><circle cx="19.2" cy="8" r="1.1" fill="#d65cff"/><rect x="18.3" y="10.5" width="1.8" height="6" rx=".9" fill="#cfc8e2"/>
-    <rect x="4" y="21.5" width="16" height="4" rx="1.6" fill="#2a1d45"/></svg>`;
+  const id = 'd' + (++_idDist);
+  const spento = stato === 'manca' || stato === 'prima' || stato === 'ignorato', arancio = stato === 'controlla';
+  const col = spento ? Array(6).fill('#3d3354') : arancio ? ['#ffb454', '#ffcf7a', '#ffb454', '#ffcf7a', '#ffb454', '#ffcf7a'] : ['#ff7fbf', '#ffd166', '#6ee7b7', '#7cc4ff', '#c79bff', '#6ee7b7'];
+  const c1 = spento ? '#9a92ad' : '#ffffff', c2 = spento ? '#6f6787' : '#ddd5f0';
+  const led = spento ? '#ff6b81' : arancio ? '#ffb454' : '#6ee7b7';
+  return `<svg class="dist" viewBox="0 0 40 52" aria-hidden="true"><defs>
+    <linearGradient id="${id}c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>
+    <linearGradient id="${id}v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2a60"/><stop offset="1" stop-color="#1c1233"/></linearGradient></defs>
+    <rect x="2" y="2" width="36" height="48" rx="7" fill="url(#${id}c)"/>
+    <rect x="2" y="2" width="36" height="7" rx="7" fill="${spento ? '#5b5275' : 'var(--a2, #b44dff)'}" opacity=".9"/><rect x="2" y="6" width="36" height="3" fill="${spento ? '#5b5275' : 'var(--a2, #b44dff)'}" opacity=".9"/>
+    <rect x="6" y="12" width="20" height="24" rx="3" fill="url(#${id}v)"/>
+    ${col.map((c, i) => `<rect x="${8.5 + (i % 3) * 5.8}" y="${14.5 + Math.floor(i / 3) * 8}" width="3.8" height="5" rx="1.2" fill="${c}"/>`).join('')}
+    <path d="M6 13h20v4H6z" fill="#fff" opacity=".07"/>
+    <rect x="29" y="13" width="6" height="2.6" rx="1.3" fill="#2a1d45"/><circle cx="32" cy="20.5" r="2" fill="${led}"/><rect x="30.6" y="25" width="2.8" height="9" rx="1.4" fill="#2a1d45" opacity=".35"/>
+    <rect x="7" y="40" width="26" height="6" rx="2.5" fill="#2a1d45"/>${spento ? '' : '<rect x="16.5" y="41.3" width="7" height="3.4" rx="1" fill="#ffd166"/>'}</svg>`;
 }
 
 const ico = {
@@ -245,19 +254,18 @@ function strisciaZip() {
   const mancano = giorni.filter((x) => x.stato === 'manca').length;
   const controlla = giorni.filter((x) => x.stato === 'controlla').length;
   const pezziTot = giorni.reduce((t, x) => t + x.zip.reduce((u, z) => u + (g.dettaglioZip(z.nome)?.pezzi || 0), 0), 0);
-  const frase = !giorni.length ? 'Nessun giorno nuovo' : mancano ? `Manca${mancano === 1 ? '' : 'no'} ${mancano} ${mancano === 1 ? 'giorno' : 'giorni'}` : controlla ? 'Uno ZIP da controllare' : 'Tutti gli ZIP ci sono';
+  const stato = !giorni.length ? ['verde', 'Nessun giorno nuovo'] : mancano ? ['rosso', `Manca${mancano === 1 ? '' : 'no'} ${mancano}`] : controlla ? ['arancio', 'Da controllare'] : ['verde', 'Tutti presenti'];
   const SIGLE = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
-  return `<div class="carta">
-    <div class="riga-titolo" style="align-items:center"><b style="font-size:16px">ZIP dall'ultimo rifornimento</b><span class="tenue" style="color:${mancano ? 'var(--rosso)' : controlla ? 'var(--arancio)' : 'var(--verde)'};font-weight:700">${frase}</span></div>
-    <small class="tenue">${ultimo ? `Ultimo rifornimento il ${isoIta(ultimo)}` : 'Ultimo rifornimento fatto col programma'} · prelievi dal ${isoIta(inizio)}${giorni.length ? ` · ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}, ${num(pezziTot)} pezzi` : ''}</small>
+  return `<section class="wid largo zipwid">
+    <div class="wid-riga"><span class="wid-tit">ZIP dall'ultimo rifornimento</span><span class="pill ${stato[0]}">${stato[1]}</span></div>
+    <div class="zip-sommario"><strong>${num(pezziTot)}</strong><span>pezzi in ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}<small>dal ${isoIta(inizio).slice(0, 5)} · ${ultimo ? `ultimo rifornimento ${isoIta(ultimo).slice(0, 5)}` : 'ultimo rifornimento col programma'}</small></span></div>
     ${giorni.length ? `<div class="striscia">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
-      return `<button type="button" class="tile ${x.stato}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
-        <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]} <b>${Number(x.giorno.slice(8))}</b></span>
-        <span class="dist-box">${distributorino(x.stato)}<span class="si">${SIMBOLI[x.stato]}</span></span><span class="pz">${x.zip.length ? num(pezzi) + ' pz' : x.stato === 'manca' ? 'manca' : ''}</span></button>`;
-    }).join('')}</div>
-    <small class="tenue">Tocca un giorno per vedere il suo ZIP riga per riga. Quando segni il rifornimento come fatto, la striscia riparte.</small>` : '<small class="tenue">Il rifornimento ha già coperto tutti gli ZIP: domani compare il primo giorno nuovo.</small>'}
-  </div>`;
+      return `<button type="button" class="tile ${x.stato}${x.giorno === ieri ? ' ieri' : ''}" data-a="giorno-zip" data-giorno="${x.giorno}" aria-label="${GIORNI[new Date(x.giorno + 'T12:00').getDay()]} ${isoIta(x.giorno)}: ${x.stato}">
+        <span class="sg">${SIGLE[new Date(x.giorno + 'T12:00').getDay()]}</span><b class="nr">${Number(x.giorno.slice(8))}</b>
+        ${distributorino(x.stato)}<span class="pz">${x.zip.length ? num(pezzi) : x.stato === 'manca' ? 'manca' : '—'}</span></button>`;
+    }).join('')}</div>` : '<small class="tenue">Il rifornimento ha coperto tutti gli ZIP: domani compare il primo giorno nuovo.</small>'}
+  </section>`;
 }
 
 function esitiNonVisti() {
@@ -352,7 +360,7 @@ function oggi() {
     <div class="anello">
       <svg viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="gr-anello" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--a1)"/><stop offset=".55" style="stop-color:var(--a2)"/><stop offset="1" style="stop-color:var(--a3)"/></linearGradient></defs>
         <circle class="base" cx="80" cy="80" r="70"/><circle class="val" cx="80" cy="80" r="70" style="stroke-dasharray:${CM.toFixed(1)};--fine:${(CM * (1 - quota)).toFixed(1)};stroke-dashoffset:${(CM * (1 - quota)).toFixed(1)}"/></svg>
-      <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>pieno</span><small>${num(liv.ora)} di ${num(liv.pieno)} pezzi · mancano ${num(liv.manca)}</small>`
+      <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>pieno</span><small>${num(liv.ora)} di ${num(liv.pieno)} pezzi<br>mancano ${num(liv.manca)}</small>`
         : `<strong>${zipOk}/${giro.giorni.length}</strong><span>ZIP del giro</span>`}</div>
     </div>
     <button type="button" class="stampa" data-scheda="rifornimento"><b data-conta="${pezziBozza}">${num(pezziBozza)}</b><span>pezzi da riportare<small>${bozza.length} articoli · apri il rifornimento</small></span>${ico.freccia}</button>
@@ -376,12 +384,8 @@ function oggi() {
       <div class="wid-riga"><span class="wid-tit">Più prelevati</span><button type="button" class="link" data-a="pagina-diretta" data-pagina="prelievi">dal ${isoIta(giro.inizio).slice(0, 5)} · ${num(giro.totale)} pz ›</button></div>
       ${top.length ? `<div class="top">${top.map((r, k) => `<button type="button" class="top-r" data-a="articolo" data-codice="${esc(r.codice)}"><span class="pos">${k + 1}</span><span class="top-n"><b>${esc(r.codice)}</b><small>${esc(r.descrizione)}</small></span><span class="top-b"><i style="--w:${Math.round(r.totale * 100 / maxTop)}%"></i></span><b class="top-q">${num(r.totale)}</b></button>`).join('')}</div>` : '<span class="wid-sotto">Nessun prelievo dall\'ultimo rifornimento</span>'}
     </div>
-    <button type="button" class="wid largo" data-scheda="calendario">
-      <div class="wid-riga"><span class="wid-tit">Questa settimana</span><span class="tenue" style="font-size:12px">${zipOk} ZIP · ${giro.mancanti.length ? `<b style="color:var(--rosso)">${giro.mancanti.length} mancanti</b>` : 'nessuno mancante'}</span></div>
-      <div class="sett">${[...Array(7)].map((_, k) => { const g1 = piuGiorni(lun, k), x = cal[g1]; const cl = g1 > oggiIso() ? 'futuro' : x ? (x.stato === 'riportato' ? 'rossa' : 'verde') : manc.has(g1) ? 'manca' : ''; return `<span class="sg-c ${cl} ${g1 === oggiIso() ? 'oggi' : ''}"><small>${['Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa', 'Do'][k]}</small><b>${Number(g1.slice(8))}</b><i>${x ? num(x.pezzi) : ''}</i></span>`; }).join('')}</div>
-    </button>
+    ${strisciaZip()}
   </div>
-  ${strisciaZip()}
   `;
 }
 
