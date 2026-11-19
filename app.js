@@ -411,7 +411,8 @@ function articoli() {
     const manca = c != null ? Math.max(0, c - p.quantita) : 0;
     const stato = c == null ? '<span class="tenue">Carico completo non impostato: aprilo e scegli Modifica</span>'
       : !manca ? '<span style="color:var(--verde)">Distributore pieno</span>'
-      : p.magazzino > 0 ? `<span style="color:var(--arancio)">Mancano ${num(manca)} per il pieno: li prendo dal magazzino</span>`
+      : p.quantita <= 0 && p.magazzino > 0 ? `<span style="color:var(--arancio)">Distributore vuoto: adesso i pezzi escono dal magazzino</span>`
+      : p.magazzino > 0 ? `<span style="color:var(--tenue)">Mancano ${num(manca)} per il pieno · il magazzino resta intatto finché il distributore non è vuoto</span>`
       : `<span style="color:var(--rosso)">Mancano ${num(manca)} per il pieno · magazzino vuoto</span>`;
     return `<button type="button" class="articolo${p.sotto ? ' sotto' : ''}${p.negativo ? ' negativo' : ''}" data-a="articolo" data-codice="${esc(p.codice)}">
       <span class="testa"><span style="display:flex;flex-direction:column;min-width:0"><b style="font-size:16px">${esc(p.codice)}</b><small class="tenue">${esc(p.descrizione)}</small></span>
@@ -578,7 +579,7 @@ function magazzino() {
   const codici = Object.keys(g.s.prodotti).sort();
   const ultimi = g.s.movimenti.filter((m) => ['DAL_MAGAZZINO', 'ECCESSO_MAGAZZINO', 'CORREZIONE_MAGAZZINO', 'REINTEGRO_MAGAZZINO'].includes(m.tipo)).sort((a, b) => b.data_ora.localeCompare(a.data_ora) || b.id - a.id).slice(0, 15);
   return `<h1>Magazzino</h1>
-  <div class="tenue">I pezzi di riserva. Quando il distributore scende sotto il carico completo li sposto da soli; quando riporti il rifornimento quelli in più rientrano qui.</div>
+  <div class="tenue">I pezzi di riserva. Restano intatti finché il distributore non è vuoto: da lì in poi i prelievi escono dal magazzino. Quando riporti il rifornimento, prima riempio il distributore fino al carico completo e quelli in più rientrano qui.</div>
   <div class="numeri"><div><span>In magazzino</span><strong style="color:var(--rosa)">${num(tot)}</strong><span>pezzi</span></div><div><span>Articoli</span><strong>${el.length}</strong><span>con riserva</span></div><div><span>Distributore</span><strong>${num(g.elenco().reduce((t, p) => t + p.quantita, 0))}</strong><span>pezzi</span></div></div>
   <div class="carta"><b>Carica pezzi nuovi in magazzino</b><small class="tenue">Quando arrivano pezzi da mettere di riserva.</small>
     <div class="campo"><label for="mag-art">Articolo</label><select id="mag-art"><option value="">Scegli l'articolo…</option>${codici.map((k) => `<option value="${esc(k)}">${esc(k)} – ${esc(g.prodotto(k).descrizione)}</option>`).join('')}</select></div>
@@ -713,7 +714,7 @@ function foglioArticolo(codice, modifica = false) {
         ${campo('descrizione', 'Descrizione', p.descrizione, 'text')}
         <div class="griglia2">${campo('quantita', 'Nel distributore', p.quantita)}${campo('magazzino', 'In magazzino', p.magazzino)}
         ${campo('carico_completo', 'Carico completo', p.carico_completo)}${campo('scorta_minima', 'Scorta minima', p.scorta_minima)}${campo('pezzi_spira', 'Pezzi per spira', p.pezzi_spira)}${campo('pezzi_blister', 'Pezzi per blister (vuoto = no)', p.in_blister ? p.pezzi_blister : '')}</div>
-        <small class="tenue">Ogni modifica finisce nello storico. Se il distributore resta sotto il carico completo, i pezzi del magazzino ci vanno da soli.</small>
+        <small class="tenue">Ogni modifica finisce nello storico. Il magazzino si usa solo quando il distributore è a zero.</small>
         <div class="affianca"><button type="button" class="btn vuoto" data-a="articolo" data-codice="${esc(codice)}">Annulla</button><button type="submit" class="btn">Salva</button></div>
       </form>
       <button type="button" class="btn pericolo piccolo" data-a="elimina-articolo" data-codice="${esc(codice)}">Elimina l'articolo</button>`);

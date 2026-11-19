@@ -802,8 +802,9 @@ export class Gestionale {
     const ora = adessoIso();
     let n = 0;
     for (const p of Object.values(this.s.prodotti)) {
-      if (p.carico_completo == null || !(p.magazzino > 0) || p.quantita >= p.carico_completo) continue;
-      const sposta = Math.min(p.magazzino, p.carico_completo - p.quantita);
+      // prima si svuota il distributore: il magazzino si tocca solo per i pezzi prelevati oltre lo zero
+      if (!(p.magazzino > 0) || p.quantita >= 0) continue;
+      const sposta = Math.min(p.magazzino, -p.quantita);
       const prima = p.quantita;
       p.quantita += sposta; p.magazzino -= sposta;
       this._mov('DAL_MAGAZZINO', p.codice, p.descrizione, sposta, prima, p.quantita, origine,
