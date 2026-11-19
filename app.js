@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '3.6';
+const VERSIONE = '3.7';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -1218,7 +1218,8 @@ const azioni = {
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
   'usa-mag': (el) => {
-    const k = el.dataset.codice, p = g.prodotto(k), b = g.s.bozza.find((x) => x.codice === k), m = p.magazzino || 0, prop = Math.min(m, b ? b.quantita : 0) || m;
+    const k = el.dataset.codice, p = g.prodotto(k), b = g.s.bozza.find((x) => x.codice === k), posto = p.carico_completo != null ? Math.max(0, p.carico_completo - p.quantita) : Infinity, m = Math.min(p.magazzino || 0, posto), prop = Math.min(m, b ? b.quantita : 0) || m;
+    if (!m) { avviso(posto === 0 ? 'Il distributore è già pieno: non c\'è posto per altri pezzi.' : 'Magazzino vuoto.', true); return; }
     apriFoglio(`<h1>Usa il magazzino</h1><div class="tenue"><b style="color:var(--testo)">${esc(k)}</b> · ${esc(p.descrizione)}</div>
       <div class="tre"><div><span>In magazzino</span><strong>${num(m)}</strong></div><div><span>Da riportare</span><strong>${num(b ? b.quantita : 0)}</strong></div><div><span>Distributore</span><strong>${num(p.quantita)}</strong></div></div>
       <div class="tenue">Quanti pezzi prendi dal magazzino invece di portarli nuovi? Passano nel distributore e il rifornimento cala di altrettanti.</div>

@@ -205,7 +205,10 @@ export class Gestionale {
    *  Con la regola nuova il magazzino si tocca solo quando il distributore è a zero. Il totale non cambia. */
   _regolaNuovaMagazzino() {
     const ora = adessoIso(), per = {};
-    for (const m of this.s.movimenti) if (m.tipo === 'DAL_MAGAZZINO') per[m.codice] = (per[m.codice] || 0) + Number(m.quantita || 0);
+    for (const m of this.s.movimenti) {
+      if (m.tipo === 'DAL_MAGAZZINO' && m.origine !== 'Rifornimento dal magazzino') per[m.codice] = (per[m.codice] || 0) + Number(m.quantita || 0);
+      if (m.tipo === 'REGOLA_MAGAZZINO') per[m.codice] = (per[m.codice] || 0) + Number(m.quantita || 0);   // già disfatti: non due volte
+    }
     let n = 0;
     for (const [codice, q] of Object.entries(per)) {
       const p = this.s.prodotti[codice];
@@ -902,6 +905,8 @@ export class Gestionale {
     if (!p) throw new Error('Articolo non trovato.');
     if (!(n > 0)) throw new Error('Scrivi quanti pezzi prendi.');
     if (n > (p.magazzino || 0)) throw new Error(`In magazzino ce ne sono solo ${p.magazzino || 0}.`);
+    const posto = p.carico_completo != null ? p.carico_completo - p.quantita : Infinity;
+    if (n > posto) throw new Error(posto > 0 ? `Nel distributore ci stanno solo ${posto} pezzi (carico completo ${p.carico_completo}).` : 'Il distributore è già pieno.');
     const prima = p.quantita;
     p.magazzino -= n; p.quantita += n;
     this._mov('DAL_MAGAZZINO', codice, p.descrizione, n, prima, p.quantita, 'Rifornimento dal magazzino', `${n} pezzi presi dal magazzino al posto del rifornimento (in magazzino ne restano ${p.magazzino})`);
