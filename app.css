@@ -316,3 +316,9 @@ html[data-colori="indaco"] { --fondo: #0b0b1a; --scheda: #16162e; --scheda2: #1c
 .ordina { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .ordina > span { font-size: 13px; color: var(--tenue); font-weight: 700; }
 
 .rif .n { display: flex; flex-direction: column; align-items: center; line-height: 1.1; } .rif .n small { font-size: 10px; font-weight: 700; color: var(--rosa); }
+
+.passi { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--tenue); }
+.passi span { display: flex; align-items: center; gap: 6px; white-space: nowrap; } .passi b { flex: 1; height: 2px; background: var(--linea); border-radius: 2px; }
+.passi i { font-style: normal; width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; background: var(--chip); }
+.passi .on { color: var(--testo); } .passi .on i { background: linear-gradient(135deg, var(--a1), var(--a2)); color: #fff; } .passi .fatto i { background: var(--verde); color: #10291f; }
+.stampa.prepara { position: sticky; bottom: calc(76px + var(--basso)); z-index: 4; margin-top: 4px; }

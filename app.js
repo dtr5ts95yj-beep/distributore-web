@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '2.8';
+const VERSIONE = '2.9';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -384,7 +384,7 @@ function oggi() {
       <div class="dentro">${liv.pct != null ? `<strong data-conta="${liv.pct}">${liv.pct}%</strong><span>pieno</span><small>${num(liv.ora)} di ${num(liv.pieno)} pezzi<br>mancano ${num(liv.manca)}</small>`
         : `<strong>${zipOk}/${giro.giorni.length}</strong><span>ZIP del giro</span>`}</div>
     </div>
-    <button type="button" class="stampa" data-scheda="rifornimento"><b data-conta="${pezziBozza}">${num(pezziBozza)}</b><span>pezzi da riportare<small>${bozza.length} articoli · apri il rifornimento</small></span>${ico.freccia}</button>
+    <button type="button" class="stampa" data-a="rif-passo" data-v="prepara"><b data-conta="${pezziBozza}">${num(pezziBozza)}</b><span>pezzi da riportare<small>${bozza.length} articoli · apri il rifornimento</small></span>${ico.freccia}</button>
   </header>
   ${cartaDrive()}
   ${listaCaricamento()}
@@ -459,7 +459,20 @@ function ultimoPrelievo(codice) {
   return diff === 0 ? 'prelevato oggi' : diff === 1 ? 'prelevato ieri' : `prelevato ${diff} giorni fa`;
 }
 
+// Rifornimento in due passi: prima i prelievi dall'ultimo rifornimento, poi Prepara (più/meno, PDF, fatto)
+function passiRif(n) {
+  return `<div class="passi"><span class="${n === 1 ? 'on' : 'fatto'}"><i>1</i>Prelievi</span><b></b><span class="${n === 2 ? 'on' : ''}"><i>2</i>Prepara</span><b></b><span><i>3</i>PDF e invio</span></div>`;
+}
+
 function rifornimento() {
+  if (ui.rifPasso === 'prepara') return `<button type="button" class="indietro" data-a="rif-passo" data-v="">‹ Prelievi</button>${passiRif(2)}${preparaRifornimento()}`;
+  const pezzi = g.s.bozza.reduce((t, b) => t + (b.quantita > 0 ? b.quantita : 0), 0), art = g.s.bozza.filter((b) => b.quantita > 0).length;
+  const corpo = prelievi().replace("<h1>Prelievi dall'ultimo rifornimento</h1>", "<h1>Rifornimento</h1><div class=\"sopra\">Prelievi dall'ultimo rifornimento</div>");
+  return `${passiRif(1)}${corpo}
+  <button type="button" class="stampa prepara" data-a="rif-passo" data-v="prepara"><b>${num(pezzi)}</b><span>Prepara il rifornimento<small>${art} articoli · più e meno, PDF con barcode</small></span>${ico.freccia}</button>`;
+}
+
+function preparaRifornimento() {
   const righe = g.bozzaDettaglio();
   const attive = righe.filter((b) => b.quantita > 0);
   const pezzi = attive.reduce((t, b) => t + b.quantita, 0);
@@ -1087,6 +1100,7 @@ const azioni = {
   'cancella-mese': async () => { const m = ui.meseStorico; if (!confirm(`Cancello tutti i movimenti di ${m} dallo storico? Le giacenze non cambiano.`)) return; await backupLocale(`prima di cancellare lo storico di ${m}`); cambia(() => g.cancellaStoricoMese(m), (n) => `${n} movimenti cancellati.`).then(() => { ui.meseStorico = ''; disegna(); }); },
   'storico-drive': () => importaStoricoDrive(),
   'ctrl-barcode': () => modalitaBarcode(),
+  'rif-passo': (el) => { ui.scheda = 'rifornimento'; ui.pagina = ''; ui.rifPasso = el.dataset.v; disegna(); window.scrollTo(0, 0); },
   'ordine': (el) => { ui.ordine = el.dataset.v; try { localStorage.setItem('ordine_articoli', ui.ordine); } catch { /* niente */ } disegna(); },
   'associa-bar': (el) => { const k = $('#bar-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.associaBarcode(k, el.dataset.testo), `Barcode abbinato a ${k}.`).then(() => { chiudiFoglio(); vaiAlPezzo(k, el.dataset.dove); }); },
   'togli-bar': (el) => { if (confirm(`Tolgo il barcode ${el.dataset.testo} da ${el.dataset.codice}?`)) cambia(() => g.togliBarcode(el.dataset.codice, el.dataset.testo), 'Barcode tolto.').then(() => foglioArticolo(el.dataset.codice)); },
@@ -1151,7 +1165,7 @@ const azioni = {
 
 document.addEventListener('click', (e) => {
   const s = e.target.closest('[data-scheda]');
-  if (s) { if (ui.scheda === s.dataset.scheda || s.dataset.scheda !== 'altro') ui.pagina = ''; ui.scheda = s.dataset.scheda; chiudiFoglio(); disegna(); window.scrollTo(0, 0); return; }
+  if (s) { if (s.dataset.scheda === 'rifornimento' && s.closest('#schede')) ui.rifPasso = ''; if (ui.scheda === s.dataset.scheda || s.dataset.scheda !== 'altro') ui.pagina = ''; ui.scheda = s.dataset.scheda; chiudiFoglio(); disegna(); window.scrollTo(0, 0); return; }
   const el = e.target.closest('[data-a]');
   if (el && azioni[el.dataset.a]) { e.preventDefault(); azioni[el.dataset.a](el); }
 });
