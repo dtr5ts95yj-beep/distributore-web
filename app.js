@@ -5,7 +5,7 @@ import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '1.7';
+const VERSIONE = '1.8';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -210,6 +210,11 @@ function esitiNonVisti() {
     <button type="button" class="btn vuoto piccolo" data-a="esito-visto" data-data="${x.data}">Ok, visto</button></div>`).join('');
 }
 
+function testoCtrl() {
+  const r = Object.values(ui.controllo.righe), t = r.reduce((a, b) => a + b, 0);
+  return r.length ? `Salva il controllo · ${r.length} ${r.length === 1 ? 'articolo' : 'articoli'}, ${t} pezzi` : 'Schiaccia + sugli articoli che mancano';
+}
+
 function controllo() {
   const c = ui.controllo;
   if (!c.data) c.data = oggiIso();
@@ -220,12 +225,14 @@ function controllo() {
   <div class="tenue">Al distributore segna i pezzi che mancano. Li tolgo subito e li metto nel rifornimento; quando arriva lo ZIP di quel giorno confronto e trovo l'eventuale ammanco, senza togliere niente due volte.</div>
   <div class="carta">
     <div class="campo"><label for="ctrl-data">Giorno del controllo</label><input id="ctrl-data" type="date" value="${c.data}" data-a-cambio="ctrl-data"></div>
-    <div class="campo"><label for="ctrl-art">Articolo</label><select id="ctrl-art"><option value="">Scegli l'articolo…</option>${codici.map((k) => `<option value="${esc(k)}">${esc(k)} – ${esc(g.prodotto(k).descrizione)}</option>`).join('')}</select></div>
-    <div class="affianca"><div class="campo"><label for="ctrl-q">Pezzi mancanti</label><input id="ctrl-q" type="number" inputmode="numeric" min="1" value="1"></div>
-      <button type="button" class="btn secondario" data-a="ctrl-aggiungi" style="align-self:flex-end">Aggiungi</button></div>
-    ${righe.length ? `<div class="lista">${righe.map(([k, q]) => `<div class="voce"><span class="corpo"><b>${esc(k)}</b><small class="taglia">${esc(g.prodotto(k)?.descrizione || '')}</small></span><b style="font-size:18px">${q}</b>
-      <button type="button" class="btn vuoto piccolo" data-a="ctrl-togli" data-codice="${esc(k)}" aria-label="Togli ${esc(k)}">Togli</button></div>`).join('')}</div>
-      <button type="button" class="btn" data-a="ctrl-salva">Salva il controllo (${righe.reduce((t, [, q]) => t + q, 0)} pezzi)</button>` : '<small class="tenue">Aggiungi gli articoli con i pezzi mancanti.</small>'}
+  </div>
+  <div class="campo"><input id="ctrl-cerca" type="search" placeholder="Cerca codice o descrizione…" autocomplete="off" aria-label="Cerca articolo"></div>
+  <div class="lista" id="ctrl-lista">${codici.map((k) => { const q = c.righe[k] || 0; return `<div class="ctrl-riga ${q ? 'segnato' : ''}" data-cerca="${esc(chiave(k + ' ' + g.prodotto(k).descrizione))}" data-codice="${esc(k)}">
+      <span class="corpo"><b>${esc(k)}</b><small class="tenue taglia">${esc(g.prodotto(k).descrizione)}</small><small class="tenue">nel distributore ${num(g.prodotto(k).quantita)}</small></span>
+      <button type="button" class="pm" data-a="ctrl-meno" data-codice="${esc(k)}" aria-label="Meno ${esc(k)}" ${q ? '' : 'disabled'}>−</button>
+      <b class="ctrl-q" aria-live="polite">${q}</b>
+      <button type="button" class="pm piu" data-a="ctrl-piu" data-codice="${esc(k)}" aria-label="Più ${esc(k)}">+</button></div>`; }).join('')}</div>
+  <div class="ctrl-barra"><button type="button" class="btn" data-a="ctrl-salva" ${righe.length ? '' : 'disabled'}>${testoCtrl()}</button></div>
   </div>
   ${attesa.length ? `<h2>In attesa dello ZIP</h2>${attesa.map((a) => `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(a.data + 'T12:00').getDay()]} ${isoIta(a.data)}</b><span class="tenue">${a.pezzi} pezzi</span></div>
     ${a.righe.map((r) => `<small><b>${esc(r.codice)}</b> mancanti ${r.mancanti} · tolti ${r.scalati}${r.assorbiti ? ` · rimessi dagli ZIP ${r.assorbiti}` : ''}</small>`).join('')}
@@ -753,6 +760,15 @@ async function creaPdf() {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+// aggiorna solo la riga toccata, così la lista non salta
+function ctrlCambia(k, d) {
+  const r = ui.controllo.righe, q = Math.max(0, (r[k] || 0) + d);
+  if (q) r[k] = q; else delete r[k];
+  const riga = document.querySelector(`.ctrl-riga[data-codice="${CSS.escape(k)}"]`);
+  if (riga) { riga.querySelector('.ctrl-q').textContent = q; riga.classList.toggle('segnato', q > 0); riga.querySelector('[data-a="ctrl-meno"]').disabled = !q; }
+  const b = document.querySelector('[data-a="ctrl-salva"]'); if (b) { b.textContent = testoCtrl(); b.disabled = !Object.keys(r).length; }
+}
+
 async function condividi(file, titolo) {
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: titolo }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -837,13 +853,8 @@ const azioni = {
   'zip-vecchi': (el) => { ui.zipVecchi = !!el.dataset.v; disegna(); },
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
   'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
-  'ctrl-aggiungi': () => {
-    const k = $('#ctrl-art').value, q = Math.round(Number($('#ctrl-q').value));
-    if (!k) { avviso('Scegli l\'articolo.', true); return; }
-    if (!(q > 0)) { avviso('Scrivi i pezzi mancanti.', true); return; }
-    ui.controllo.righe[k] = q; disegna();
-  },
-  'ctrl-togli': (el) => { delete ui.controllo.righe[el.dataset.codice]; disegna(); },
+  'ctrl-piu': (el) => ctrlCambia(el.dataset.codice, 1),
+  'ctrl-meno': (el) => ctrlCambia(el.dataset.codice, -1),
   'ctrl-salva': () => {
     const c = ui.controllo;
     cambia(() => g.salvaControllo(c.data, c.righe), (r) => `Controllo salvato: ${r.tolti} pezzi tolti dal distributore e messi nel rifornimento.${r.esiti.length ? ' Confrontato subito con lo ZIP già arrivato.' : ''}`)
@@ -896,6 +907,7 @@ document.addEventListener('click', (e) => {
 });
 $('#velo').addEventListener('click', chiudiFoglio);
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'ctrl-cerca') { const q = chiave(e.target.value); document.querySelectorAll('.ctrl-riga').forEach((r) => { r.hidden = !!q && !r.dataset.cerca.includes(q); }); return; }
   if (e.target.dataset.inv) {
     const c = e.target.dataset.inv, campo = e.target.dataset.campo, v = e.target.value;
     const r = (ui.inventario[c] ||= {});
