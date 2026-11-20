@@ -13,7 +13,7 @@ export async function pdfRifornimento(righe, info) {
   const nero = rgb(0, 0, 0), grigio = rgb(0.35, 0.35, 0.35), chiaro = rgb(0.85, 0.85, 0.85);
   const L = 595.28, H = 841.89, M = 32;
   const col = [ // x, larghezza
-    ['CODICE', M, 92], ['DESCRIZIONE', M + 92, 196], ['PEZZI', M + 288, 46], ['BARCODE', M + 334, 168], ['OK', M + 502, 29],
+    ['CODICE', M, 82], ['DESCRIZIONE', M + 82, 150], ['BARCODE CODICE', M + 232, 168], ['PEZZI', M + 400, 46], ['BARCODE PEZZI', M + 446, 85],
   ];
   const ALTO = 40, TESTA = 22;
   const tronca = (t, f, size, w) => { t = pulisci(t); while (t && f.widthOfTextAtSize(t, size) > w) t = t.slice(0, -1); return t; };
@@ -43,26 +43,25 @@ export async function pdfRifornimento(righe, info) {
     const top = y, base = y - ALTO;
     pag.drawRectangle({ x: M, y: base, width: L - 2 * M, height: ALTO, borderColor: grigio, borderWidth: 0.6 });
     for (const [, x] of col.slice(1)) pag.drawLine({ start: { x, y: base }, end: { x, y: top }, thickness: 0.6, color: grigio });
-    pag.drawText(tronca(r.codice, grassetto, 10.5, 86), { x: M + 4, y: base + 15, size: 10.5, font: grassetto, color: nero });
+    pag.drawText(tronca(r.codice, grassetto, 10, 76), { x: M + 4, y: base + 15, size: 10, font: grassetto, color: nero });
     const d = pulisci(r.descrizione);
     const parole = d.split(' '); let r1 = '', r2 = '';
-    for (const p of parole) { const prova = (r1 ? r1 + ' ' : '') + p; if (font.widthOfTextAtSize(prova, 9) <= 188 && !r2) r1 = prova; else r2 = (r2 ? r2 + ' ' : '') + p; }
-    r2 = tronca(r2, font, 9, 188);
-    pag.drawText(r1, { x: M + 96, y: base + (r2 ? 22 : 15), size: 9, font, color: nero });
-    if (r2) pag.drawText(r2, { x: M + 96, y: base + 10, size: 9, font, color: nero });
+    for (const p of parole) { const prova = (r1 ? r1 + ' ' : '') + p; if (font.widthOfTextAtSize(prova, 8.5) <= 142 && !r2) r1 = prova; else r2 = (r2 ? r2 + ' ' : '') + p; }
+    r2 = tronca(r2, font, 8.5, 142);
+    pag.drawText(r1, { x: M + 86, y: base + (r2 ? 22 : 15), size: 8.5, font, color: nero });
+    if (r2) pag.drawText(r2, { x: M + 86, y: base + 10, size: 8.5, font, color: nero });
+    // barcode: prima il codice, poi la quantità (si spara da sinistra a destra)
+    const disegnaBarre = (testo, x0, larg) => {
+      const b = barre128(testo);
+      const moduli = [...b].reduce((t, c) => t + Number(c), 0) + 20;
+      const mod = Math.min(1.1, (larg - 10) / moduli);
+      let x = x0 + (larg - mod * moduli) / 2 + 10 * mod;
+      [...b].forEach((c, i) => { const w = Number(c) * mod; if (i % 2 === 0) pag.drawRectangle({ x, y: base + 6, width: w, height: ALTO - 12, color: nero }); x += w; });
+    };
+    disegnaBarre(r.codice, M + 232, 168);
     const q = String(r.quantita);
-    pag.drawText(q, { x: M + 288 + (46 - grassetto.widthOfTextAtSize(q, 16)) / 2, y: base + 13, size: 16, font: grassetto, color: nero });
-    // barcode
-    const b = barre128(r.codice);
-    const moduli = [...b].reduce((s, c) => s + Number(c), 0) + 20;
-    const mod = Math.min(1.1, (168 - 10) / moduli);
-    let x = M + 334 + (168 - mod * moduli) / 2 + 10 * mod;
-    [...b].forEach((c, i) => {
-      const w = Number(c) * mod;
-      if (i % 2 === 0) pag.drawRectangle({ x, y: base + 6, width: w, height: ALTO - 12, color: nero });
-      x += w;
-    });
-    pag.drawRectangle({ x: M + 502 + 7, y: base + 13, width: 14, height: 14, borderColor: nero, borderWidth: 1 });
+    pag.drawText(q, { x: M + 400 + (46 - grassetto.widthOfTextAtSize(q, 16)) / 2, y: base + 13, size: 16, font: grassetto, color: nero });
+    disegnaBarre(q, M + 446, 85);
     y = base;
   }
   pagine.forEach((p, i) => {
