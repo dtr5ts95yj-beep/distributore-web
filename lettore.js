@@ -33,7 +33,8 @@ function decodifica128(r) {
       if (s == null) break;
       if (s === 106) {   // stop: 6 elementi + la barra finale di 2 moduli
         const w = r.slice(j, j + 7), t = w.reduce((a, b) => a + b, 0);
-        if (w.length === 7 && Math.abs(w[6] * 13 / t - 2) < 1.1) ok = true;
+        const dopo = r[j + 7];   // dopo lo stop ci vuole il margine chiaro: evita letture false dalle scritte
+        if (w.length === 7 && Math.abs(w[6] * 13 / t - 2) < 1.1 && (dopo == null || dopo >= mod * 2.5)) ok = true;
         break;
       }
       if (s > 105) break;
@@ -142,7 +143,7 @@ export function leggiRiga(L) {
 // così aprendola di nuovo non lo richiede. Si spegne davvero dopo 3 minuti o quando l'app va in secondo piano.
 let tenuto = null, spegni = null;
 function spegniDavvero() { clearTimeout(spegni); tenuto?.getTracks().forEach((t) => t.stop()); tenuto = null; }
-document.addEventListener('visibilitychange', () => { if (document.hidden && !document.getElementById('lettore')) spegniDavvero(); });
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.hidden && !document.getElementById('lettore')) spegniDavvero(); });
 async function prendiFotocamera() {
   clearTimeout(spegni);
   if (tenuto && tenuto.getVideoTracks().some((t) => t.readyState === 'live')) { tenuto.getTracks().forEach((t) => { t.enabled = true; }); return tenuto; }
