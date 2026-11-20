@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.1';
+const VERSIONE = '5.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -112,6 +112,9 @@ function aggiornaColleghi(subito = false) {
         const oggi = oggiIso();
         await drive.salvaPerColleghi('rif-oggi', `Rifornimento da preparare ${isoIta(oggi).replace(/\//g, '-')}.pdf`, 'application/pdf', new Uint8Array(await f.arrayBuffer()));
         drive.togliVecchiColleghi('rif-2').catch(() => {});   // le copie per giorno della 4.9: ne resta una sola
+      } else {
+        // rifornimento appena registrato (lista vuota): il PDF "da preparare" non vale più, va nel cestino
+        await drive.togliVecchiColleghi('rif-oggi').catch(() => {});
       }
       try { localStorage.setItem('colleghi_ultimo', new Date().toISOString()); } catch { /* niente */ }
     } catch (e) { console.warn('File per i colleghi', e); }
