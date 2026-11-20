@@ -401,3 +401,10 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
 .podio { margin-top: 2px; } .gradino { padding-top: 0; }
 .riporta span { line-height: 1.15; } .riporta { padding: 10px 12px; }
 .zipwid { margin-top: 0; }
+
+.giro-art { gap: 10px; border: 1px solid color-mix(in srgb, var(--rosa) 35%, transparent); }
+.giro-testa { display: flex; justify-content: space-between; align-items: center; } .giro-testa span { display: flex; flex-direction: column; }
+.giro-testa small { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--tit); } .giro-testa strong { font-size: 40px; font-weight: 900; color: var(--rosa); line-height: 1; }
+.grafico.giro .e { line-height: 1.1; text-align: center; } .grafico.giro .manca .b { background: transparent; border: 1.5px dashed var(--rosso); min-height: 6px; } .grafico.giro .manca .v { color: var(--rosso); }
+.giro-lista { display: flex; flex-wrap: wrap; gap: 6px; } .giro-lista span { padding: 4px 10px; border-radius: 99px; background: rgba(255, 255, 255, .06); font-size: 13px; } .giro-lista b { color: var(--rosa); }
+.giro-rif { font-size: 14px; } .giro-rif b { color: var(--rosa); }

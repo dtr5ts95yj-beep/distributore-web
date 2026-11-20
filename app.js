@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.4';
+const VERSIONE = '4.5';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -921,18 +921,28 @@ function foglioArticolo(codice, modifica = false) {
   const freccia = (a, b) => (a == null || b == null) ? (b ?? '—') : a === b ? `${b}` : `${a} → <b>${b}</b>`;
   apriFoglio(`
     <div style="display:flex;flex-direction:column;gap:2px;padding-right:40px"><h1>${esc(p.codice)}</h1><span class="tenue" style="font-size:15px">${esc(p.descrizione)}</span></div>
+    ${(() => {
+      // prima di tutto: i prelievi di questo giro di rifornimento, giorno per giorno
+      const gr = g.prelieviGiro(), r = gr.righe.find((x) => x.codice === codice), SIG = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
+      const val = gr.giorni.map((d) => (r && r.giorni[d]) || 0), mx = Math.max(1, ...val), manc = new Set(gr.mancanti);
+      const b = g.s.bozza.find((x) => x.codice === codice);
+      return `<div class="carta giro-art">
+        <div class="giro-testa"><span><small>Prelevati da questo rifornimento</small><b>dal ${isoIta(gr.inizio).slice(0, 5)} a ieri</b></span><strong>${num(r ? r.totale : 0)}</strong></div>
+        ${gr.giorni.length ? `<div class="grafico giro" style="grid-template-columns:repeat(${gr.giorni.length}, 1fr)">${gr.giorni.map((d, k) => `<div class="${manc.has(d) ? 'manca' : ''}"><span class="v">${val[k] || (manc.has(d) ? '?' : '')}</span><span class="b" style="height:${Math.round(val[k] * 100 / mx)}%"></span><span class="e">${SIG[new Date(d + 'T12:00').getDay()]}<br>${Number(d.slice(8))}</span></div>`).join('')}</div>` : ''}
+        ${r ? `<div class="giro-lista">${Object.entries(r.giorni).sort().map(([d, q]) => `<span><b>${num(q)}</b> ${GIORNI[new Date(d + 'T12:00').getDay()].slice(0, 3).toLowerCase()} ${isoIta(d).slice(0, 5)}</span>`).join('')}</div>` : '<small class="tenue">Nessun prelievo in questo giro.</small>'}
+        ${gr.mancanti.length ? `<small class="tenue">Mancano ancora gli ZIP del ${gr.mancanti.map((d) => isoIta(d).slice(0, 5)).join(', ')}: i loro prelievi arrivano con lo ZIP.</small>` : ''}
+        ${b && b.quantita ? `<div class="giro-rif">Nel rifornimento da preparare: <b>${num(b.quantita)} pezzi</b></div>` : ''}
+      </div>`;
+    })()}
     <div class="tre">
       <div><span>Distributore</span><strong class="${p.quantita < 0 ? 'rosso' : ''}">${num(p.quantita)}</strong><small>${c != null ? `su ${num(c)}` : 'carico ?'}</small></div>
       <div><span>Magazzino</span><strong>${num(p.magazzino)}</strong><small>di riserva</small></div>
       <div class="${sotto ? 'allarme' : ''}"><span>Totale</span><strong>${num(disp)}</strong><small>${p.scorta_minima != null ? `scorta min. ${num(p.scorta_minima)}` : 'scorta ?'}</small></div>
     </div>
     ${c ? `<div class="barra grande"><div style="width:${Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c)))}%"></div></div>` : ''}
-    ${(() => { const r = g.prelieviGiro().righe.find((x) => x.codice === codice); const ini = g.inizioGiro(); return `<div class="carta"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Dall'ultimo rifornimento</b><strong style="font-size:24px;color:var(--rosa)">${num(r ? r.totale : 0)} pezzi</strong></div>
-      <small class="tenue">Prelievi dal ${isoIta(ini)} a ieri${r ? ': ' + Object.entries(r.giorni).map(([d, q]) => `${isoIta(d).slice(0, 5)} ${q}`).join(' · ') : ''}</small></div>`; })()}
     <div class="carta">
       <div>Con i prelievi delle ultime 4 settimane (<b>${num(st.pezzi_28)}</b> pezzi, ${st.media.toLocaleString('it-IT', { maximumFractionDigits: 1 })} al giorno) ti dura ${durata}.</div>
       ${sotto ? '<div style="color:var(--arancio);font-weight:700">Sotto la scorta minima: da riordinare.</div>' : ''}
-      ${st.in_rifornimento ? `<div>Nel prossimo rifornimento: <b style="color:var(--rosa)">${st.in_rifornimento} pezzi</b>.</div>` : ''}
       ${g.consiglio(codice) ? `<div style="color:var(--rosa);font-weight:600">${esc(g.consiglio(codice))}</div>` : ''}
       <small class="tenue">Ultimo prelievo ${st.ultimo_prelievo ? isoIta(st.ultimo_prelievo) : '—'} · ultimo rifornimento ${st.ultimo_rifornimento ? isoIta(st.ultimo_rifornimento.slice(0, 10)) : '—'}</small>
     </div>
