@@ -571,26 +571,54 @@ export class Gestionale {
 
   // ------------------------------------------------------------ annullamenti
   /** Annulla l'ultimo rifornimento: i pezzi riportati tornano fuori e la bozza torna com'era. */
-  annullaUltimoRifornimento() {
-    const r = this.s.rifornimenti[this.s.rifornimenti.length - 1];
-    if (!r || !r.righe) throw new Error('Nessun rifornimento da annullare (quelli fatti col programma del PC non si annullano qui).');
-    const ora = adessoIso();
-    const movs = this.s.movimenti.filter((m) => (r.id ? m.rif === r.id : m.data_ora === r.data_ora && m.origine === 'Rifornimento') && (m.tipo === 'RIFORNIMENTO' || m.tipo === 'ECCESSO_MAGAZZINO'));
-    for (const m of movs) {
-      const p = this.s.prodotti[m.codice]; if (!p) continue;
-      if (m.tipo === 'ECCESSO_MAGAZZINO') { p.magazzino = (p.magazzino || 0) + m.quantita; p.quantita -= m.quantita; }
+  /** I rifornimenti fatti (anche quello del programma del PC), dal più recente: si riconoscono dai movimenti. */
+  eventiRifornimento() {
+    const per = new Map();
+    for (const m of this.s.movimenti) {
+      if (m.tipo !== 'RIFORNIMENTO' || !(Number(m.quantita) > 0) || m.annullato || m.origine === 'Rifornimento annullato') continue;
+      const k = m.rif || m.data_ora;
+      const e = per.get(k) || { chiave: k, data_ora: m.data_ora, articoli: 0, pezzi: 0 };
+      e.articoli++; e.pezzi += Number(m.quantita); per.set(k, e);
     }
-    for (const m of movs.filter((x) => x.tipo === 'RIFORNIMENTO')) {
-      const p = this.s.prodotti[m.codice]; if (!p) continue;
-      const prima = p.quantita; p.quantita -= m.quantita;
-      this._mov('RIFORNIMENTO', m.codice, p.descrizione, -m.quantita, prima, p.quantita, 'Rifornimento annullato', `Annullato il rifornimento del ${isoIta(r.data_ora.slice(0, 10))}`, ora);
+    return [...per.values()].sort((a, b) => b.data_ora.localeCompare(a.data_ora))
+      .map((e) => ({ ...e, app: this.s.rifornimenti.some((r) => (r.id || r.data_ora) === e.chiave || r.data_ora === e.data_ora) }));
+  }
+
+  /** Ripristina da un rifornimento: lui e quelli dopo si disfano, i loro pezzi tornano nel rifornimento da fare
+   *  e gli ZIP che coprivano tornano liberi. Quello che c'è prima resta com'è (storico). */
+  ripristinaDa(chiave) {
+    const ev = this.eventiRifornimento(), quale = ev.find((e) => e.chiave === chiave);
+    if (!quale) throw new Error('Rifornimento non trovato.');
+    const ora = adessoIso(), da = ev.filter((e) => e.data_ora >= quale.data_ora);
+    if (da.some((e) => !e.app)) throw new Error('Il rifornimento fatto col programma del PC resta nello storico: si può ripristinare solo da quelli fatti con l\'app.');
+    let pezzi = 0;
+    for (const e of da) {
+      const suoi = (m) => (m.rif || m.data_ora) === e.chiave && !m.annullato;
+      // quanto di quel rifornimento era andato in magazzino, articolo per articolo
+      const ecc = {};
+      for (const m of this.s.movimenti.filter((x) => x.tipo === 'ECCESSO_MAGAZZINO' && suoi(x))) { ecc[m.codice] = (ecc[m.codice] || 0) - Number(m.quantita); m.annullato = true; }
+      for (const m of this.s.movimenti.filter((x) => x.tipo === 'RIFORNIMENTO' && Number(x.quantita) > 0 && suoi(x))) {
+        const p = this.s.prodotti[m.codice]; m.annullato = true; if (!p) continue;
+        // i pezzi non sono mai stati riportati: escono prima dal magazzino (la parte che ci era andata, se c'è ancora), poi dal distributore
+        const q = Number(m.quantita), daMag = Math.min(p.magazzino || 0, ecc[m.codice] || 0);
+        ecc[m.codice] = (ecc[m.codice] || 0) - daMag;
+        const prima = p.quantita; p.magazzino = (p.magazzino || 0) - daMag; p.quantita -= q - daMag; pezzi += q;
+        this._mov('RIFORNIMENTO', m.codice, p.descrizione, -q, prima, p.quantita, 'Rifornimento annullato', `Ripristinato il rifornimento del ${isoIta(e.data_ora.slice(0, 10))}: i pezzi tornano da riportare`, ora);
+        const b = this.s.bozza.find((x) => x.codice === m.codice);   // torna con la quantità che avevi stampato
+        if (b) { b.quantita += q; b.proposta += q; } else this.s.bozza.push({ codice: m.codice, descrizione: p.descrizione, proposta: q, quantita: q });
+      }
+      for (const z of this.s.zip) if (z.rifornito === e.data_ora) delete z.rifornito;
+      this.s.rifornimenti = this.s.rifornimenti.filter((r) => (r.id || r.data_ora) !== e.chiave && r.data_ora !== e.data_ora);
     }
-    this.s.bozza = r.righe.map((b) => ({ ...b }));
-    for (const z of this.s.zip) if (z.rifornito === r.data_ora) delete z.rifornito;
-    this.s.rifornimenti.pop();
-    this.riempiDaMagazzino('Dopo l\'annullamento del rifornimento');
+    this.riempiDaMagazzino('Dopo il ripristino del rifornimento');
     this._tocca();
-    return r;
+    return { rifornimenti: da.length, pezzi, dal: quale.data_ora };
+  }
+
+  annullaUltimoRifornimento() {
+    const e = this.eventiRifornimento()[0];
+    if (!e) throw new Error('Nessun rifornimento da annullare.');
+    return this.ripristinaDa(e.chiave);
   }
 
   svuotaBozza() { this.s.bozza = []; this._tocca(); }

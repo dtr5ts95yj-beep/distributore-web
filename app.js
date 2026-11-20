@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.6';
+const VERSIONE = '4.7';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -38,7 +38,7 @@ async function backupLocale(motivo) {
 
 // ------------------------------------------------------------------ stato della pagina
 let g = null;                       // Gestionale
-const ui = { ordine: (() => { try { return localStorage.getItem('ordine_articoli') || ''; } catch { return ''; } })(), scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, inventario: {}, meseStorico: '', mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
+const ui = { ordineRif: (() => { try { return localStorage.getItem('ordine_rif') || 'codice'; } catch { return 'codice'; } })(), ordine: (() => { try { return localStorage.getItem('ordine_articoli') || ''; } catch { return ''; } })(), scheda: 'oggi', pagina: '', controllo: { data: '', righe: {} }, inventario: {}, meseStorico: '', mese: oggiIso().slice(0, 7), settimana: '', cerca: '', filtro: 'tutti', cercaStorico: '', tipoStorico: 'tutti', quantiStorico: 150, drive: { stato: 'fermo', msg: '', nuovi: [] } };
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (n) => Number(n || 0).toLocaleString('it-IT');
@@ -506,14 +506,22 @@ function rifornimento() {
   <button type="button" class="stampa prepara" data-a="rif-passo" data-v="prepara"><b>${num(pezzi)}</b><span>Prepara il rifornimento<small>${art} articoli · più e meno, PDF con barcode</small></span>${ico.freccia}</button>`;
 }
 
+// ordine della lista e del PDF: per codice, più pezzi prima, per descrizione
+function ordinaRif(lista) {
+  const o = ui.ordineRif || 'codice', desc = (b) => (g.prodotto(b.codice)?.descrizione || b.descrizione || '');
+  return [...lista].sort((a, b) => o === 'pezzi' ? b.quantita - a.quantita || a.codice.localeCompare(b.codice)
+    : o === 'descrizione' ? desc(a).localeCompare(desc(b)) : a.codice.localeCompare(b.codice));
+}
+
 function preparaRifornimento() {
-  const righe = g.bozzaDettaglio();
+  const righe = ordinaRif(g.bozzaDettaglio());
   const attive = righe.filter((b) => b.quantita > 0);
   const pezzi = attive.reduce((t, b) => t + b.quantita, 0);
   const oltre = attive.filter((b) => b.oltre).length, spira = attive.filter((b) => b.fuori_spira).length;
   const per = periodoBozza();
   return `
   <div><h1>Rifornimento</h1><div class="sopra">${per ? esc(per) + ' · ' : ''}${attive.length} articoli · <b style="color:var(--rosa)">${num(pezzi)} pezzi</b></div></div>
+  <div class="ordina"><span>Ordina</span>${[['codice', 'Per codice'], ['pezzi', 'Più pezzi prima'], ['descrizione', 'Per descrizione']].map(([v, t]) => `<button type="button" class="chip" data-a="ordine-rif" data-v="${v}" aria-pressed="${(ui.ordineRif || 'codice') === v}">${t}</button>`).join('')}</div>
   ${oltre || spira ? `<div class="carta ${spira ? 'avviso-carta' : ''}">${oltre ? `<div class="tenue">Per <b style="color:var(--testo)">${oltre}</b> ${oltre === 1 ? 'articolo' : 'articoli'} il distributore è già pieno: i pezzi riportati vanno a ripristinare il magazzino.</div>` : ''}${spira ? `<div><b>${spira}</b> ${spira === 1 ? 'quantità non è' : 'quantità non sono'} multipl${spira === 1 ? 'a' : 'e'} dei pezzi per spira.</div>` : ''}</div>` : ''}
   ${righe.length ? `<div class="lista">${righe.map((b) => `
     <div class="rif ${b.quantita ? '' : 'spento'}"><div class="corpo" role="button" tabindex="0" data-a="articolo" data-codice="${esc(b.codice)}" style="text-align:left;padding:4px 0;cursor:pointer">
@@ -523,12 +531,10 @@ function preparaRifornimento() {
       <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
       <button type="button" class="passo piu" aria-label="${passoSpira(b.codice)} in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}
   <button type="button" class="btn vuoto piccolo" data-a="aggiungi-rif">+ Aggiungi un articolo a mano</button>
-  ${attive.length ? `<div class="azioni">
-    <button type="button" class="btn" data-a="pdf">${ico.mail} Crea PDF con barcode e mandalo</button>
-    <button type="button" class="btn vuoto" data-a="fatto">Rifornimento fatto</button></div>` : ''}
-  ${righe.length ? '<button type="button" class="btn vuoto piccolo" data-a="svuota-bozza">Svuota il rifornimento</button>' : ''}
-  ${g.s.rifornimenti.length ? `<h2>Rifornimenti fatti</h2><div class="lista">${g.s.rifornimenti.slice(-8).reverse().map((r, i) => `<div class="voce"><span class="corpo"><b>${isoIta(r.data_ora.slice(0, 10))} alle ${r.data_ora.slice(11, 16)}</b><small>${r.articoli} articoli · ${num(r.pezzi)} pezzi</small></span>
-    ${r.righe ? `<button type="button" class="btn vuoto piccolo" data-a="ripdf" data-ora="${esc(r.data_ora)}">PDF</button>` : ''}${i === 0 && r.righe ? '<button type="button" class="btn vuoto piccolo" data-a="annulla-rif">Annulla</button>' : ''}</div>`).join('')}</div>` : ''}`;
+  ${attive.length ? `<button type="button" class="stampa prepara" data-a="stampa-fatto"><b>${num(attive.reduce((t, b) => t + b.quantita, 0))}</b><span>Stampa PDF e registra<small>con i barcode · il giro riparte da zero</small></span>${ico.mail}</button>` : ''}
+  ${(() => { const ev = g.eventiRifornimento(); return ev.length ? `<h2>Rifornimenti fatti</h2><div class="tenue">Per tornare indietro: "Ripristina da qui" disfa quel rifornimento e quelli dopo. I loro ZIP tornano liberi e i pezzi tornano da riportare; quello che c'è prima resta solo nello storico.</div>
+    <div class="lista">${ev.slice(0, 10).map((e) => `<div class="voce"><span class="corpo"><b>${isoIta(e.data_ora.slice(0, 10))} alle ${e.data_ora.slice(11, 16)}</b><small>${e.articoli} articoli · ${num(e.pezzi)} pezzi${e.app ? '' : ' · fatto col programma'}</small></span>
+      ${e.app ? `<button type="button" class="btn vuoto piccolo" data-a="ripdf" data-chiave="${esc(e.chiave)}">PDF</button>` : ''}${e.app ? `<button type="button" class="btn vuoto piccolo" data-a="ripristina-da" data-chiave="${esc(e.chiave)}">Ripristina da qui</button>` : ''}</div>`).join('')}</div>` : ''; })()}`;
 }
 
 function calendario() {
@@ -1075,22 +1081,15 @@ async function importaFileZip(files) {
   avviso(testo.join(' · '), testo.some((t) => /errore|non /i.test(t)));
 }
 
-async function creaPdf() {
-  const righe = [...g.s.bozza].filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice))
+async function filePdfRifornimento() {
+  const righe = ordinaRif(g.s.bozza.filter((b) => b.quantita > 0))
     .map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione }));
   const pezzi = righe.reduce((s, r) => s + r.quantita, 0);
   const per = periodoBozza();
   const ora = new Date();
-  const info = `${per ? per + '   ·   ' : ''}${righe.length} articoli   ·   ${pezzi} pezzi   ·   preparato il ${ora.toLocaleDateString('it-IT')} ${ora.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+  const info = `${per ? per + '   ·   ' : ''}${righe.length} articoli   ·   ${pezzi} pezzi   ·   stampato il ${ora.toLocaleDateString('it-IT')} ${ora.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
   const byte = await pdfRifornimento(righe, info);
-  const file = new File([byte], nomeFile(oggiIso()), { type: 'application/pdf' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'Rifornimento distributore' }); return; }
-    catch (e) { if (e.name === 'AbortError') return; }
-  }
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return new File([byte], nomeFile(oggiIso()), { type: 'application/pdf' });
 }
 
 // aggiorna solo la riga toccata, così la lista non salta
@@ -1234,15 +1233,8 @@ const azioni = {
   'ricalcola-scorte': () => cambia(() => g.ricalcolaScorte(true), (n) => `Scorte minime ricalcolate: ${n} articoli aggiornati.`),
   'azzera': async () => { if (!confirm('Azzero distributore e magazzino di TUTTI gli articoli?')) return; if (!confirm('Sicuro? Prima faccio un backup nel telefono.')) return; await backupLocale('prima di azzerare le giacenze'); cambia(() => g.azzeraGiacenze(), 'Giacenze azzerate.'); },
   'annulla-zip': async (el) => { if (!confirm(`Annullo ${el.dataset.nome}? I suoi pezzi tornano nel distributore e spariscono dal rifornimento.`)) return; await backupLocale(`prima di annullare ${el.dataset.nome}`); cambia(() => g.annullaZip(el.dataset.nome), (r) => `ZIP annullato: ${r.pezzi} pezzi rimessi.`); },
-  'annulla-rif': async () => { if (!confirm('Annullo l\'ultimo rifornimento? I pezzi riportati escono di nuovo e la lista torna com\'era.')) return; await backupLocale('prima di annullare il rifornimento'); cambia(() => g.annullaUltimoRifornimento(), 'Rifornimento annullato.'); },
-  'svuota-bozza': async () => {
-    const pezzi = g.s.bozza.reduce((t, b) => t + (b.quantita > 0 ? b.quantita : 0), 0);
-    if (!await chiediConferma({ titolo: 'Svuoto il rifornimento?', si: 'Sì, svuota', pericolo: true,
-      testo: `Tolgo dalla lista tutti i <b>${num(pezzi)} pezzi</b> da riportare. Le giacenze non cambiano, ma la lista va rifatta a mano.<br><br><small class="tenue">Prima salvo una copia: la ritrovi in Altro → Backup.</small>` })) return;
-    await backupLocale('prima di svuotare il rifornimento');
-    cambia(() => g.svuotaBozza(), 'Rifornimento svuotato.');
-  },
-  'ripdf': async (el) => { const r = g.s.rifornimenti.find((x) => x.data_ora === el.dataset.ora); if (!r) return; const righe = r.righe.filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice)).map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione })); const byte = await pdfRifornimento(righe, `Rifornimento del ${isoIta(r.data_ora.slice(0, 10))} ${r.data_ora.slice(11, 16)}   ·   ${r.articoli} articoli   ·   ${r.pezzi} pezzi   ·   copia`); condividi(new File([byte], nomeFile(r.data_ora.slice(0, 10)), { type: 'application/pdf' }), 'Rifornimento distributore'); },
+
+  'ripdf': async (el) => { const r = g.s.rifornimenti.find((x) => (x.id || x.data_ora) === el.dataset.chiave || x.data_ora === el.dataset.chiave); if (!r || !r.righe) { avviso('PDF non disponibile per questo rifornimento.', true); return; } const righe = r.righe.filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice)).map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione })); const byte = await pdfRifornimento(righe, `Rifornimento del ${isoIta(r.data_ora.slice(0, 10))} ${r.data_ora.slice(11, 16)}   ·   ${r.articoli} articoli   ·   ${r.pezzi} pezzi   ·   copia`); condividi(new File([byte], nomeFile(r.data_ora.slice(0, 10)), { type: 'application/pdf' }), 'Rifornimento distributore'); },
   'riabilita': (el) => cambia(() => g.riabilitaDescrizione(el.dataset.chiave), 'Descrizione riabilitata.'),
   'backup-ora': async () => { await backupLocale('copia a mano'); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia fatta.'); disegna(); },
   'ripristina-locale': async (el) => { if (!confirm('Ripristino questa copia? I dati di adesso vengono sostituiti (prima ne salvo una copia).')) return; const dati = await archivio.leggi(el.dataset.chiave); if (!dati) { avviso('Copia non trovata.', true); return; } await backupLocale('prima del ripristino'); g = new Gestionale(dati); g.s.aggiornato = new Date().toISOString(); await salva(); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia ripristinata.'); disegna(); },
@@ -1256,6 +1248,7 @@ const azioni = {
   'storico-drive': () => importaStoricoDrive(),
   'pref-tema': (el) => { try { localStorage.setItem('pref_tema', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'ctrl-barcode': () => modalitaBarcode(),
+  'ordine-rif': (el) => { ui.ordineRif = el.dataset.v; try { localStorage.setItem('ordine_rif', ui.ordineRif); } catch { /* niente */ } disegna(); },
   'abb-nuovo': () => foglioAbbinamento(),
   'abb-modifica': (el) => foglioAbbinamento({ chiaveA: el.dataset.chiave || '', desc: el.dataset.desc || '', cp: el.dataset.cp || '', art: el.dataset.art || '' }),
   'abb-art': (el) => foglioAbbinamento({ art: el.dataset.codice }),
@@ -1302,14 +1295,28 @@ const azioni = {
   // + e − vanno avanti di una spira (o di un blister): si riempiono spire intere
   'meno': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.max(0, Math.ceil(b.quantita / n) * n - n))); },
   'piu': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.floor(b.quantita / n) * n + n)); },
-  'pdf': async (el) => { el.disabled = true; try { await creaPdf(); } catch (e) { avviso('PDF non creato: ' + e.message, true); } el.disabled = false; },
-  'fatto': async () => {
+  'stampa-fatto': async (el) => {
     const righe = g.s.bozza.filter((b) => b.quantita > 0), pezzi = righe.reduce((t, b) => t + b.quantita, 0);
-    if (!await chiediConferma({ titolo: 'Rifornimento fatto?', si: `Sì, li ho riportati`,
-      testo: `Confermi di aver messo nel distributore <b>${num(pezzi)} pezzi</b> di <b>${righe.length} articoli</b>?<br><br><small class="tenue">${esc(periodoBozza())}. Tornano nel distributore, quelli oltre il carico completo vanno in magazzino, e il giro riparte da zero. Se sbagli puoi annullarlo dai Rifornimenti fatti.</small>` })) return;
-    await backupLocale('prima del rifornimento fatto');
-    cambia(() => g.rifornimentoFatto(), (r) => `Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi.`);
+    if (!await chiediConferma({ titolo: 'Stampo e registro?', si: 'Sì, stampa e registra',
+      testo: `Creo il PDF con <b>${num(pezzi)} pezzi</b> di <b>${righe.length} articoli</b> e registro il rifornimento: i pezzi tornano nel distributore (oltre il carico completo in magazzino) e il giro riparte da zero.<br><br><small class="tenue">${esc(periodoBozza())}. Se sbagli: Rifornimenti fatti → Ripristina da qui.</small>` })) return;
+    el.disabled = true;
+    try {
+      const file = await filePdfRifornimento();          // prima il PDF: se non si crea, non registro niente
+      await backupLocale('prima del rifornimento');
+      const r = g.rifornimentoFatto(); await salva(); disegna();
+      avviso(`Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi.`);
+      await condividi(file, 'Rifornimento distributore');
+    } catch (e) { avviso('Non fatto: ' + e.message, true); }
+    el.disabled = false;
   },
+  'ripristina-da': async (el) => {
+    const ev = g.eventiRifornimento(), e = ev.find((x) => x.chiave === el.dataset.chiave), dopo = ev.filter((x) => x.data_ora >= e.data_ora);
+    if (!await chiediConferma({ titolo: 'Ripristino da qui?', si: 'Sì, ripristina', pericolo: true,
+      testo: `Disfo ${dopo.length === 1 ? 'il rifornimento' : `${dopo.length} rifornimenti, dal`} del <b>${isoIta(e.data_ora.slice(0, 10))} alle ${e.data_ora.slice(11, 16)}</b>${dopo.length > 1 ? ' in poi' : ''}: <b>${num(dopo.reduce((t, x) => t + x.pezzi, 0))} pezzi</b> tornano da riportare, gli ZIP che coprivano tornano liberi e il giro riparte da lì. Quello che c'è prima resta solo nello storico.<br><br><small class="tenue">Prima salvo una copia nel telefono.</small>` })) return;
+    await backupLocale(`prima di ripristinare dal ${isoIta(e.data_ora.slice(0, 10))}`);
+    cambia(() => g.ripristinaDa(e.chiave), (r) => `Ripristinato: ${r.pezzi} pezzi tornati da riportare.`);
+  },
+
   'ignora-giorno': (el) => cambia(() => { g.s.giorni_ignorati.push(el.dataset.giorno); g.s.aggiornato = new Date().toISOString(); }, 'Giorno ignorato.').then(chiudiFoglio),
   'ignora-riga': (el) => { if (confirm('Questa descrizione non verrà più considerata nei prossimi ZIP. Continuo?')) cambia(() => g.ignora(Number(el.dataset.i)), 'Ignorata.').then(foglioDrive); },
   'nuovo-articolo': () => {
