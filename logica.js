@@ -575,7 +575,7 @@ export class Gestionale {
     const r = this.s.rifornimenti[this.s.rifornimenti.length - 1];
     if (!r || !r.righe) throw new Error('Nessun rifornimento da annullare (quelli fatti col programma del PC non si annullano qui).');
     const ora = adessoIso();
-    const movs = this.s.movimenti.filter((m) => m.data_ora === r.data_ora && (m.tipo === 'RIFORNIMENTO' || m.tipo === 'ECCESSO_MAGAZZINO'));
+    const movs = this.s.movimenti.filter((m) => (r.id ? m.rif === r.id : m.data_ora === r.data_ora && m.origine === 'Rifornimento') && (m.tipo === 'RIFORNIMENTO' || m.tipo === 'ECCESSO_MAGAZZINO'));
     for (const m of movs) {
       const p = this.s.prodotti[m.codice]; if (!p) continue;
       if (m.tipo === 'ECCESSO_MAGAZZINO') { p.magazzino = (p.magazzino || 0) + m.quantita; p.quantita -= m.quantita; }
@@ -939,6 +939,7 @@ export class Gestionale {
     const ora = adessoIso();
     const righe = this.s.bozza.filter((b) => b.quantita > 0 && this.s.prodotti[b.codice]);
     let pezzi = 0;
+    const id = 'rif-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), inizio = this.s.movimenti.length;
     for (const b of righe) {
       const p = this.s.prodotti[b.codice];
       const prima = p.quantita;
@@ -952,8 +953,9 @@ export class Gestionale {
           `${ecc} pezzi oltre il carico completo spostati in magazzino (ora ${p.magazzino})`, ora);
       }
     }
+    for (const m of this.s.movimenti.slice(inizio)) m.rif = id;          // per annullarlo con precisione
     for (const z of this.s.zip) if (!z.rifornito) z.rifornito = ora;      // calendario: rosso = già riportato
-    this.s.rifornimenti.push({ data_ora: ora, articoli: righe.length, pezzi, righe: this.s.bozza.map((b) => ({ ...b })) });
+    this.s.rifornimenti.push({ id, data_ora: ora, articoli: righe.length, pezzi, righe: this.s.bozza.map((b) => ({ ...b })) });
     this.s.bozza = [];
     this._tocca();
     return { articoli: righe.length, pezzi };
