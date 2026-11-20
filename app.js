@@ -1367,7 +1367,7 @@ const azioni = {
     el.disabled = false;
   },
   'ripristina-da': async (el) => {
-    const ev = g.eventiRifornimento(), e = ev.find((x) => x.chiave === el.dataset.chiave), dopo = ev.filter((x) => x.data_ora >= e.data_ora);
+    const ev = g.eventiRifornimento(), e = ev.find((x) => x.chiave === el.dataset.chiave), dopo = ev.filter((x) => x.ordine >= e.ordine);
     if (!await chiediConferma({ titolo: 'Ripristino da qui?', si: 'Sì, ripristina', pericolo: true,
       testo: `Disfo ${dopo.length === 1 ? 'il rifornimento' : `${dopo.length} rifornimenti, dal`} del <b>${isoIta(e.data_ora.slice(0, 10))} alle ${e.data_ora.slice(11, 16)}</b>${dopo.length > 1 ? ' in poi' : ''}: <b>${num(dopo.reduce((t, x) => t + x.pezzi, 0))} pezzi</b> tornano da riportare, gli ZIP che coprivano tornano liberi e il giro riparte da lì. Quello che c'è prima resta solo nello storico.<br><br><small class="tenue">Prima salvo una copia nel telefono.</small>` })) return;
     await backupLocale(`prima di ripristinare dal ${isoIta(e.data_ora.slice(0, 10))}`);

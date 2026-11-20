@@ -581,13 +581,13 @@ export class Gestionale {
   /** I rifornimenti fatti (anche quello del programma del PC), dal più recente: si riconoscono dai movimenti. */
   eventiRifornimento() {
     const per = new Map();
-    for (const m of this.s.movimenti) {
-      if (m.tipo !== 'RIFORNIMENTO' || !(Number(m.quantita) > 0) || m.annullato || m.origine === 'Rifornimento annullato') continue;
+    this.s.movimenti.forEach((m, i) => {
+      if (m.tipo !== 'RIFORNIMENTO' || !(Number(m.quantita) > 0) || m.annullato || m.origine === 'Rifornimento annullato') return;
       const k = m.rif || m.data_ora;
-      const e = per.get(k) || { chiave: k, data_ora: m.data_ora, articoli: 0, pezzi: 0 };
+      const e = per.get(k) || { chiave: k, data_ora: m.data_ora, articoli: 0, pezzi: 0, ordine: i };
       e.articoli++; e.pezzi += Number(m.quantita); per.set(k, e);
-    }
-    return [...per.values()].sort((a, b) => b.data_ora.localeCompare(a.data_ora))
+    });
+    return [...per.values()].sort((a, b) => b.ordine - a.ordine)
       .map((e) => ({ ...e, app: this.s.rifornimenti.some((r) => (r.id || r.data_ora) === e.chiave || r.data_ora === e.data_ora) }));
   }
 
@@ -596,7 +596,7 @@ export class Gestionale {
   ripristinaDa(chiave) {
     const ev = this.eventiRifornimento(), quale = ev.find((e) => e.chiave === chiave);
     if (!quale) throw new Error('Rifornimento non trovato.');
-    const ora = adessoIso(), da = ev.filter((e) => e.data_ora >= quale.data_ora);
+    const ora = adessoIso(), da = ev.filter((e) => e.ordine >= quale.ordine);
     if (da.some((e) => !e.app)) throw new Error('Il rifornimento fatto col programma del PC resta nello storico: si può ripristinare solo da quelli fatti con l\'app.');
     let pezzi = 0;
     for (const e of da) {
