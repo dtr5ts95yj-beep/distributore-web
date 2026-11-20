@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.4';
+const VERSIONE = '5.7';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -236,6 +236,8 @@ function aggiornaNumerino() {
     if (n) navigator.setAppBadge(n).catch(() => {}); else navigator.clearAppBadge?.().catch(() => {});
   } catch { /* niente */ }
 }
+
+{ const v = document.getElementById('sp-ver'); if (v) v.textContent = `versione ${VERSIONE}`; }
 
 function chiudiSplash() {
   const sp = $('#splash'); if (!sp) return;
@@ -1473,5 +1475,12 @@ function mostraRiepilogoSettimana() {
     setTimeout(() => apriFoglio(riepilogo() + `<button type="button" class="btn" data-a="riepilogo-ok" data-settimana="${r.settimana}">Ok</button>`), 800);
   } catch { /* niente */ }
 }
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+// aggiornamenti: controlla sempre se c'è una versione nuova (all'apertura e quando torni sull'app);
+// se arriva mentre l'app è aperta, alla prossima riapertura parte già quella nuova
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => {
+    r.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); });
+  }).catch(() => {});
+}
 avvia();

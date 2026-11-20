@@ -408,3 +408,4 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
 .grafico.giro .e { line-height: 1.1; text-align: center; } .grafico.giro .manca .b { background: transparent; border: 1.5px dashed var(--rosso); min-height: 6px; } .grafico.giro .manca .v { color: var(--rosso); }
 .giro-lista { display: flex; flex-wrap: wrap; gap: 6px; } .giro-lista span { padding: 4px 10px; border-radius: 99px; background: rgba(255, 255, 255, .06); font-size: 13px; } .giro-lista b { color: var(--rosa); }
 .giro-rif { font-size: 14px; } .giro-rif b { color: var(--rosa); }
+.sp-ver { position: relative; font-size: 13px; font-weight: 600; letter-spacing: .12em; color: rgba(255, 255, 255, .6); animation: sp-testo .7s .8s ease both; }
