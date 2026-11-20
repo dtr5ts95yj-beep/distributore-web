@@ -104,7 +104,7 @@ function aggiornaColleghi(subito = false) {
     try {
       const byte = await creaExcel(window.JSZip, fogliColleghi(g, { isoIta }));
       // come Foglio Google: il collega lo apre da Drive nel browser, senza scaricare niente
-      await drive.salvaPerColleghi('fogli', 'Distributore - situazione aggiornata', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', byte, 'application/vnd.google-apps.spreadsheet');
+      await drive.salvaPerColleghi('fogli', 'Distributore Termomeccanica aggiornato', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', byte, 'application/vnd.google-apps.spreadsheet');
       drive.togliVecchiColleghi('excel').catch(() => {});   // il vecchio file .xlsx della 4.9
       // il PDF del rifornimento come lo vedi tu in Prepara: un solo file, riscritto (col nome del giorno)
       if (g.s.bozza.some((b) => b.quantita > 0)) {
