@@ -112,18 +112,25 @@ export const drive = {
   },
 
   /** Scrive (o riscrive) un file nella cartella per i colleghi; tipo distingue i file (excel, pdf). */
-  async salvaPerColleghi(tipo, nome, mime, byte) {
+  async salvaPerColleghi(tipo, nome, mime, byte, converti = '') {
     const cartella = await this._cartellaColleghi();
     const q = `'${cartella}' in parents and trashed = false and appProperties has { key='tipo' and value='${tipo}' }`;
     const d = await this._json(`${API}/files?` + new URLSearchParams({ q, fields: 'files(id)', pageSize: '5' }));
     const id = d.files && d.files[0] ? d.files[0].id : '';
     if (id) {
-      await this._chiama(`${UPLOAD}/files/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': mime }, body: byte });
-      await this._chiama(`${API}/files/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nome }) });
-      return { id, cartella };
+      try {
+        await this._chiama(`${UPLOAD}/files/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': mime }, body: byte });
+        await this._chiama(`${API}/files/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nome }) });
+        return { id, cartella };
+      } catch (e) {
+        if (e.accesso) throw e;
+        // se Google non accetta di riscriverlo (es. Foglio Google), ne faccio uno nuovo e butto il vecchio
+        await this._chiama(`${API}/files/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }).catch(() => {});
+      }
     }
     const confine = 'distributore' + Date.now();
-    const meta = { name: nome, mimeType: mime, parents: [cartella], appProperties: { app: 'distributore-web', tipo } };
+    // converti: tipo Google (es. Fogli Google) in cui Drive trasforma il file caricato
+    const meta = { name: nome, mimeType: converti || mime, parents: [cartella], appProperties: { app: 'distributore-web', tipo } };
     const testa = `--${confine}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${confine}\r\nContent-Type: ${mime}\r\n\r\n`;
     const corpo = new Blob([testa, byte, `\r\n--${confine}--`]);
     const r = await (await this._chiama(`${UPLOAD}/files?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${confine}` }, body: corpo })).json();
