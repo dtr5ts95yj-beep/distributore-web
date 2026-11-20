@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.8';
+const VERSIONE = '4.9';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -104,6 +104,12 @@ function aggiornaColleghi(subito = false) {
     try {
       const byte = await creaExcel(window.JSZip, fogliColleghi(g, { isoIta }));
       await drive.salvaPerColleghi('excel', 'Distributore - situazione aggiornata.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', byte);
+      // il PDF del rifornimento come lo vedi tu in Prepara: una copia per giorno, riscritta durante la giornata
+      if (g.s.bozza.some((b) => b.quantita > 0)) {
+        const f = await filePdfRifornimento('DA PREPARARE · aggiornato');
+        const oggi = oggiIso();
+        await drive.salvaPerColleghi('rif-' + oggi, `Rifornimento da preparare ${isoIta(oggi).replace(/\//g, '-')}.pdf`, 'application/pdf', new Uint8Array(await f.arrayBuffer()));
+      }
       try { localStorage.setItem('colleghi_ultimo', new Date().toISOString()); } catch { /* niente */ }
     } catch (e) { console.warn('File per i colleghi', e); }
     ok();
@@ -823,7 +829,7 @@ function impostazioni() {
     <button type="button" class="btn secondario piccolo" data-a="controlla">Controlla Drive adesso</button>
   </div>
   <h2>File per i colleghi</h2>
-  <div class="carta"><small class="tenue">Nel tuo Drive tengo la cartella <b style="color:var(--testo)">"Distributore - per i colleghi"</b> con un Excel sempre aggiornato (rifornimento da preparare, giacenze, prelievi, ZIP) e il PDF dell'ultimo rifornimento. Si aggiorna quando apri l'app e dopo ogni modifica. Condividi la cartella col collega da Google Drive (una volta sola): lui la apre dal PC.</small>
+  <div class="carta"><small class="tenue">Nel tuo Drive tengo la cartella <b style="color:var(--testo)">"Distributore - per i colleghi"</b> con un Excel sempre aggiornato (rifornimento da preparare, giacenze, prelievi, ZIP), il PDF del rifornimento da preparare di ogni giorno (come lo vedi tu, con i barcode) e il PDF dell'ultimo rifornimento stampato. Si aggiorna quando apri l'app e dopo ogni modifica. Condividi la cartella col collega da Google Drive (una volta sola): lui la apre dal PC.</small>
     <label class="interruttore"><input type="checkbox" data-a-cambio="colleghi" ${colleghiAttivo() ? 'checked' : ''}> Tieni aggiornato il file</label>
     <small class="tenue">${(() => { try { const u = localStorage.getItem('colleghi_ultimo'); return u ? `Ultimo aggiornamento: ${new Date(u).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Non ancora creato.'; } catch { return ''; } })()}</small>
     <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="colleghi-ora" ${drive.token() ? '' : 'disabled'}>Aggiorna adesso</button>${drive.linkCartellaColleghi() ? `<a class="btn vuoto piccolo" href="${drive.linkCartellaColleghi()}" target="_blank" rel="noopener">Apri la cartella</a>` : ''}</div></div>`;
@@ -1105,13 +1111,13 @@ async function importaFileZip(files) {
   avviso(testo.join(' · '), testo.some((t) => /errore|non /i.test(t)));
 }
 
-async function filePdfRifornimento() {
+async function filePdfRifornimento(etichetta = 'stampato') {
   const righe = ordinaRif(g.s.bozza.filter((b) => b.quantita > 0))
     .map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione }));
   const pezzi = righe.reduce((s, r) => s + r.quantita, 0);
   const per = periodoBozza();
   const ora = new Date();
-  const info = `${per ? per + '   ·   ' : ''}${righe.length} articoli   ·   ${pezzi} pezzi   ·   stampato il ${ora.toLocaleDateString('it-IT')} ${ora.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+  const info = `${per ? per + '   ·   ' : ''}${righe.length} articoli   ·   ${pezzi} pezzi   ·   ${etichetta} il ${ora.toLocaleDateString('it-IT')} ${ora.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
   const byte = await pdfRifornimento(righe, info);
   return new File([byte], nomeFile(oggiIso()), { type: 'application/pdf' });
 }
