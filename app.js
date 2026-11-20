@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.2';
+const VERSIONE = '5.3';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -540,6 +540,11 @@ function rifornimento() {
 // ordine della lista e del PDF: per codice, più pezzi prima, per descrizione
 function ordinaRif(lista) {
   const o = ui.ordineRif || 'codice', desc = (b) => (g.prodotto(b.codice)?.descrizione || b.descrizione || '');
+  // mentre premi + e − le righe non si spostano: l'ordine resta quello di quando hai aperto la pagina
+  if (ui.ordineFisso && ui.ordineFisso.o === o) {
+    const pos = new Map(ui.ordineFisso.codici.map((c, i) => [c, i]));
+    return [...lista].sort((a, b) => (pos.has(a.codice) ? pos.get(a.codice) : 1e9) - (pos.has(b.codice) ? pos.get(b.codice) : 1e9) || a.codice.localeCompare(b.codice));
+  }
   return [...lista].sort((a, b) => o === 'pezzi' ? b.quantita - a.quantita || a.codice.localeCompare(b.codice)
     : o === 'descrizione' ? desc(a).localeCompare(desc(b)) : a.codice.localeCompare(b.codice));
 }
@@ -606,6 +611,20 @@ function prelievi() {
     ${w.giorni.length ? `<div class="grafico">${w.giorni.map((d, i) => `<div><span class="v">${w.perGiorno[i] || ''}</span><span class="b" style="height:${Math.round(w.perGiorno[i] * 100 / max)}%"></span><span class="e">${Number(d.slice(8))}</span></div>`).join('')}</div>` : ''}</div>
   <div class="lista">${w.righe.map((r) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(r.codice)}"><span class="corpo"><b>${esc(r.codice)}</b><small class="taglia">${esc(r.descrizione)}</small>
     <small class="tenue">${Object.entries(r.giorni).map(([d, q]) => `${sig(d)}: ${q}`).join(' · ')}</small></span><b style="font-size:18px">${num(r.totale)}</b></button>`).join('') || '<div class="vuoto-msg">Nessun prelievo dall\'ultimo rifornimento.</div>'}</div>`;
+}
+
+// + e − nel rifornimento: la riga resta ferma sotto il dito (niente riordino, niente salto di pagina)
+async function passoRif(codice, verso) {
+  const b = g.s.bozza.find((x) => x.codice === codice); if (!b) return;
+  const n = passoSpira(codice);
+  if (!ui.ordineFisso || ui.ordineFisso.o !== (ui.ordineRif || 'codice')) ui.ordineFisso = { o: ui.ordineRif || 'codice', codici: [...document.querySelectorAll('.rif [data-a="piu"]')].map((x) => x.dataset.codice) };
+  const tasto = document.querySelector(`[data-a="${verso > 0 ? 'piu' : 'meno'}"][data-codice="${CSS.escape(codice)}"]`);
+  const prima = tasto ? tasto.getBoundingClientRect().top : null;
+  try { g.impostaQuantitaBozza(codice, verso > 0 ? Math.floor(b.quantita / n) * n + n : Math.max(0, Math.ceil(b.quantita / n) * n - n)); } catch (e) { avviso(e.message, true); return; }
+  disegna();
+  const dopo = document.querySelector(`[data-a="${verso > 0 ? 'piu' : 'meno'}"][data-codice="${CSS.escape(codice)}"]`);
+  if (dopo && prima != null) window.scrollBy(0, dopo.getBoundingClientRect().top - prima);   // il tasto torna esattamente sotto il dito
+  salva();
 }
 
 function passoSpira(codice) {
@@ -1285,14 +1304,14 @@ const azioni = {
   'pref-tema': (el) => { try { localStorage.setItem('pref_tema', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'ctrl-barcode': () => modalitaBarcode(),
   'colleghi-ora': async (el) => { el.disabled = true; avviso('Aggiorno il file per i colleghi…'); await aggiornaColleghi(true); avviso(localStorage.getItem('colleghi_ultimo') ? 'File per i colleghi aggiornato su Drive.' : 'Non sono riuscito ad aggiornarlo.'); disegna(); },
-  'ordine-rif': (el) => { ui.ordineRif = el.dataset.v; try { localStorage.setItem('ordine_rif', ui.ordineRif); } catch { /* niente */ } disegna(); },
+  'ordine-rif': (el) => { ui.ordineFisso = null; ui.ordineRif = el.dataset.v; try { localStorage.setItem('ordine_rif', ui.ordineRif); } catch { /* niente */ } disegna(); },
   'abb-nuovo': () => foglioAbbinamento(),
   'abb-modifica': (el) => foglioAbbinamento({ chiaveA: el.dataset.chiave || '', desc: el.dataset.desc || '', cp: el.dataset.cp || '', art: el.dataset.art || '' }),
   'abb-art': (el) => foglioAbbinamento({ art: el.dataset.codice }),
   'rinomina': (el) => { const v = el.dataset.codice; const n = prompt(`Nuovo codice AS400 per ${v}?\n(Cambia ovunque: giacenze, storico, abbinamenti, rifornimento.)`, v); if (!n || n.trim().toUpperCase() === v) return; cambia(() => g.rinominaArticolo(v, n), (k) => `Codice cambiato: ${v} → ${k}.`).then((k) => { if (k) foglioArticolo(k); }); },
   'bar-uno': (el) => { const dalFoglio = !$('#foglio').hidden; chiudiFoglio(); caricaBarcode([el.dataset.codice], dalFoglio ? () => foglioArticolo(el.dataset.codice) : null); },
   'bar-fila': () => caricaBarcode(g.elenco().filter((p) => !(p.barcode || []).length).map((p) => p.codice)),
-  'rif-passo': (el) => { ui.scheda = 'rifornimento'; ui.pagina = ''; ui.rifPasso = el.dataset.v; disegna(); window.scrollTo(0, 0); },
+  'rif-passo': (el) => { ui.ordineFisso = null; ui.scheda = 'rifornimento'; ui.pagina = ''; ui.rifPasso = el.dataset.v; disegna(); window.scrollTo(0, 0); },
   'ordine': (el) => { ui.ordine = el.dataset.v; try { localStorage.setItem('ordine_articoli', ui.ordine); } catch { /* niente */ } disegna(); },
   'associa-bar': (el) => { const k = $('#bar-art').value; if (!k) { avviso('Scegli l\'articolo.', true); return; } cambia(() => g.associaBarcode(k, el.dataset.testo), `Barcode abbinato a ${k}.`).then(() => { chiudiFoglio(); vaiAlPezzo(k, el.dataset.dove); }); },
   'togli-bar': (el) => { if (confirm(`Tolgo il barcode ${el.dataset.testo} da ${el.dataset.codice}?`)) cambia(() => g.togliBarcode(el.dataset.codice, el.dataset.testo), 'Barcode tolto.').then(() => foglioArticolo(el.dataset.codice)); },
@@ -1330,8 +1349,8 @@ const azioni = {
   'ev': (el) => { const a = (ui.storicoAperti ||= new Set()); if (a.has(el.dataset.k)) a.delete(el.dataset.k); else a.add(el.dataset.k); disegna(); },
   'altri-storico': () => { ui.quantiStorico += 300; disegna(); },
   // + e − vanno avanti di una spira (o di un blister): si riempiono spire intere
-  'meno': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.max(0, Math.ceil(b.quantita / n) * n - n))); },
-  'piu': (el) => { const b = g.s.bozza.find((x) => x.codice === el.dataset.codice), n = passoSpira(b.codice); cambia(() => g.impostaQuantitaBozza(b.codice, Math.floor(b.quantita / n) * n + n)); },
+  'meno': (el) => passoRif(el.dataset.codice, -1),
+  'piu': (el) => passoRif(el.dataset.codice, 1),
   'stampa-fatto': async (el) => {
     const righe = g.s.bozza.filter((b) => b.quantita > 0), pezzi = righe.reduce((t, b) => t + b.quantita, 0);
     if (!await chiediConferma({ titolo: 'Stampo e registro?', si: 'Sì, stampa e registra',
@@ -1372,7 +1391,7 @@ const azioni = {
 
 document.addEventListener('click', (e) => {
   const s = e.target.closest('[data-scheda]');
-  if (s) { if (s.dataset.scheda === 'rifornimento' && s.closest('#schede')) ui.rifPasso = ''; if (ui.scheda === s.dataset.scheda || s.dataset.scheda !== 'altro') ui.pagina = ''; ui.scheda = s.dataset.scheda; chiudiFoglio(); disegna(); window.scrollTo(0, 0); return; }
+  if (s) { ui.ordineFisso = null; if (s.dataset.scheda === 'rifornimento' && s.closest('#schede')) ui.rifPasso = ''; if (ui.scheda === s.dataset.scheda || s.dataset.scheda !== 'altro') ui.pagina = ''; ui.scheda = s.dataset.scheda; chiudiFoglio(); disegna(); window.scrollTo(0, 0); return; }
   const el = e.target.closest('[data-a]');
   if (el && azioni[el.dataset.a]) { e.preventDefault(); azioni[el.dataset.a](el); }
 });
