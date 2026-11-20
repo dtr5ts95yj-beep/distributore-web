@@ -6,7 +6,7 @@ import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.2';
+const VERSIONE = '4.3';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -280,7 +280,7 @@ function strisciaZip() {
   const SIGLE = ['Do', 'Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa'];
   return `<section class="wid largo zipwid">
     <div class="wid-riga"><span class="wid-tit">ZIP dall'ultimo rifornimento</span><span class="pill ${stato[0]}">${stato[1]}</span></div>
-    <div class="zip-sommario"><strong>${num(pezziTot)}</strong><span>pezzi in ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}<small>dal ${isoIta(inizio).slice(0, 5)} · ${ultimo ? `ultimo rifornimento ${isoIta(ultimo).slice(0, 5)}` : 'ultimo rifornimento col programma'}</small></span></div>
+    <div class="zip-sommario"><strong>${num(pezziTot)}</strong><span>pezzi in ${giorni.length} ${giorni.length === 1 ? 'giorno' : 'giorni'}<small>dal ${isoIta(inizio).slice(0, 5)} · ${ultimo ? `ultimo rifornimento il ${isoIta(ultimo).slice(0, 5)}` : 'rifornimento col programma'}</small></span></div>
     ${giorni.length ? `<div class="striscia ${giorni.length > 7 ? 'scorre' : ''}" style="--n:${Math.min(7, giorni.length)}">${giorni.map((x) => {
       const pezzi = x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0);
       const zero = x.zip.length && !pezzi && x.stato === 'ok';
@@ -400,7 +400,7 @@ function oggi() {
   const pezziBozza = bozza.reduce((t, b) => t + b.quantita, 0);
   const sosp = g.s.sospese.length;
   const ora = d.getHours();
-  const saluto = ora < 13 ? 'Buongiorno' : ora < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  const saluto = ora < 5 ? 'Buonanotte' : ora < 13 ? 'Buongiorno' : ora < 18 ? 'Buon pomeriggio' : 'Buonasera';
   const liv = livelloMagazzino();
   const zu = g.s.zip.filter((z) => !z.eliminato && !z.storico && z.dal).sort((a, b) => (a.al || a.dal).localeCompare(b.al || b.dal) || (a.importato_il || '').localeCompare(b.importato_il || '')).pop();
   const zd = zu ? g.dettaglioZip(zu.nome) : null;
@@ -429,10 +429,11 @@ function oggi() {
   ${listaCaricamento()}
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
+  ${strisciaZip()}
   <div class="mini3">
-    <button type="button" class="mini" ${zu ? `data-a="zip" data-nome="${esc(zu.nome)}"` : ''}><span class="mi">📦</span><small>Ultimo ZIP</small><b>${zu ? gg(zu.al || zu.dal) : '—'}</b><em class="${zu?.completo === false ? 'arancio' : 'verde'}">${zu ? (zu.completo === false ? 'da controllare' : `✓ ${num(zd.pezzi)} pz`) : ''}</em></button>
-    <button type="button" class="mini" data-a="vedi-riordino"><span class="mi">🛒</span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? 'articoli' : 'tutto ok'}</em></button>
-    <button type="button" class="mini ${manc.length ? 'allarme' : ''}" data-a="pagina-diretta" data-pagina="zipimportati"><span class="mi">${manc.length ? '⚠️' : '✅'}</span><small>ZIP mancanti</small><b style="color:${manc.length ? 'var(--rosso)' : 'var(--verde)'}">${manc.length}</b><em>${manc.length ? manc.map(gg).join(' · ') : 'nessuno'}</em></button>
+    <button type="button" class="mini" data-a="rif-passo" data-v=""><span class="mi" style="background:#ff9f0a"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><small>Prelevati</small><b>${num(giro.totale)}</b><em>dal ${gg(giro.inizio)}</em></button>
+    <button type="button" class="mini" data-a="vedi-riordino"><span class="mi" style="background:${riordino.length ? '#ff6b3d' : '#34c759'}"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11h11L21 7H6"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg></span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? (riordino.length === 1 ? 'articolo' : 'articoli') : 'tutto ok'}</em></button>
+    <button type="button" class="mini" data-a="pagina-diretta" data-pagina="controllo"><span class="mi" style="background:#ff5f8f"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></span><small>Controllo</small><b>${g.controlliInAttesa().length || '›'}</b><em>${g.controlliInAttesa().length ? 'in attesa dello ZIP' : 'sul posto'}</em></button>
   </div>
   <section class="wid largo">
     <div class="wid-riga"><span class="wid-tit">Più prelevati</span><button type="button" class="link" data-a="rif-passo" data-v="">dal ${gg(giro.inizio)} · ${num(giro.totale)} pz ›</button></div>
@@ -440,7 +441,6 @@ function oggi() {
       ${resto.length ? `<div class="top">${resto.map((r, k) => `<button type="button" class="top-r" data-a="articolo" data-codice="${esc(r.codice)}"><span class="pos">${k + 4}</span><span class="top-n"><b>${esc(r.codice)}</b><small>${esc(r.descrizione)}</small></span><span class="top-b"><i style="--w:${Math.round(r.totale * 100 / maxR)}%"></i></span><b class="top-q">${num(r.totale)}</b></button>`).join('')}</div>` : ''}`
       : '<span class="wid-sotto">Nessun prelievo dall\'ultimo rifornimento</span>'}
   </section>
-  ${strisciaZip()}
   `;
 }
 
