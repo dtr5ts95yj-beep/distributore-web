@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.3';
+const VERSIONE = '5.4';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -1331,7 +1331,7 @@ const azioni = {
       .then((r) => { if (r) ui.controllo = { data: c.data, righe: {} }; disegna(); });
   },
   'ctrl-modifica': (el) => { const d = el.dataset.data; ui.controllo = { data: d, righe: Object.fromEntries(g.s.controlli.filter((x) => x.data === d && x.stato === 'attesa').map((x) => [x.codice, x.mancanti])) }; disegna(); window.scrollTo(0, 0); },
-  'ctrl-elimina': (el) => { if (confirm(`Elimino il controllo del ${isoIta(el.dataset.data)}? I pezzi tolti tornano nel distributore.`)) cambia(() => g.eliminaControllo(el.dataset.data), 'Controllo eliminato.'); },
+  'ctrl-elimina': (el) => { if (confirm(`Elimino il controllo del ${isoIta(el.dataset.data)}? I pezzi segnati escono dal rifornimento.`)) cambia(() => g.eliminaControllo(el.dataset.data), 'Controllo eliminato.'); },
   'vedi-riordino': () => { ui.scheda = 'articoli'; ui.filtro = 'riordino'; ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
   'vedi-sotto': () => { ui.scheda = 'articoli'; ui.filtro = 'sotto'; ui.pagina = ''; disegna(); },
   'pagina': async (el) => { ui.pagina = el.dataset.pagina; if (ui.pagina === 'backup') ui.backupElenco = await archivio.leggi('backup_elenco').catch(() => []); disegna(); window.scrollTo(0, 0); },

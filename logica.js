@@ -470,9 +470,11 @@ export class Gestionale {
     let aggiunti = 0;
     for (const [codice, mancanti] of pulite) {
       const p = this.s.prodotti[codice];
+      const b0 = this.s.bozza.find((x) => x.codice === codice), q0 = b0 ? b0.quantita : 0, pr0 = b0 ? b0.proposta : 0;
       this._bozzaPiu(codice, mancanti);
+      const b1 = this.s.bozza.find((x) => x.codice === codice);   // con i blister la lista può crescere più dei pezzi segnati
       this._mov('CONTROLLO_POSTO', codice, p.descrizione, 0, p.quantita, p.quantita, `Controllo sul posto del ${gg}`, `Segnati ${mancanti} mancanti: aggiunti al rifornimento, il distributore lo scala lo ZIP`, ora);
-      this.s.controlli.push({ data: giorno, codice, mancanti, aggiunti: mancanti, assorbiti: 0, stato: 'attesa', salvato_il: ora });
+      this.s.controlli.push({ data: giorno, codice, mancanti, aggiunti: mancanti, assorbiti: 0, stato: 'attesa', salvato_il: ora, in_lista: b1.quantita - q0, in_proposta: b1.proposta - pr0 });
       aggiunti += mancanti;
     }
     // se lo ZIP di quel giorno c'è già, confronto subito
@@ -490,8 +492,13 @@ export class Gestionale {
     for (const r of righe) {
       const p = this.s.prodotti[r.codice];
       if (r.aggiunti != null) {
-        const netto = (r.aggiunti || 0) - (r.assorbiti || 0);   // la parte che lo ZIP ha già coperto resta (è dello ZIP)
-        if (netto > 0) this._bozzaMeno(r.codice, netto);
+        // tolgo dalla lista quello che il controllo ci aveva messo (blister compresi); la parte già coperta dallo ZIP resta
+        const b = this.s.bozza.find((x) => x.codice === r.codice), ass = r.assorbiti || 0;
+        if (b) {
+          b.quantita = Math.max(0, b.quantita - Math.max(0, (r.in_lista ?? r.aggiunti ?? 0) - ass));
+          b.proposta = Math.max(0, b.proposta - Math.max(0, (r.in_proposta ?? r.aggiunti ?? 0) - ass));
+          if (b.quantita <= 0 && b.proposta <= 0) this.s.bozza = this.s.bozza.filter((x) => x !== b);
+        }
         if (p) this._mov('CONTROLLO_POSTO', r.codice, p.descrizione, 0, p.quantita, p.quantita, `Controllo sul posto del ${isoIta(giorno)}`, 'Controllo cambiato o eliminato: tolti dal rifornimento', ora);
       } else if (p) {   // controlli salvati con la regola vecchia (pezzi tolti subito)
         const netto = (r.scalati || 0) - (r.assorbiti || 0);
