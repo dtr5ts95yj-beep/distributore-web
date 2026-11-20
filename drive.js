@@ -130,6 +130,15 @@ export const drive = {
     return { id: r.id, cartella };
   },
 
+  /** Butta nel cestino i file vecchi della cartella per i colleghi il cui tipo comincia per… */
+  async togliVecchiColleghi(inizio) {
+    const cartella = leggi('drive_cartella_colleghi'); if (!cartella) return;
+    const q = `'${cartella}' in parents and trashed = false and appProperties has { key='app' and value='distributore-web' }`;
+    const d = await this._json(`${API}/files?` + new URLSearchParams({ q, fields: 'files(id,appProperties)', pageSize: '100' }));
+    for (const f of d.files || []) if ((f.appProperties?.tipo || '').startsWith(inizio))
+      await this._chiama(`${API}/files/${f.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+  },
+
   linkCartellaColleghi() { const id = leggi('drive_cartella_colleghi'); return id ? `https://drive.google.com/drive/folders/${id}` : ''; },
 
   // --------------------------------------------------------------- file dei dati nel tuo Drive
