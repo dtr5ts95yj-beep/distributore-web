@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.7';
+const VERSIONE = '5.8';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -552,7 +552,9 @@ function ordinaRif(lista) {
 }
 
 function preparaRifornimento() {
-  const righe = ordinaRif(g.bozzaDettaglio());
+  // le righe a 0 non si vedono; restano solo mentre le stai sistemando con + e − (così puoi rimetterle)
+  const visibili = new Set(ui.ordineFisso ? ui.ordineFisso.codici : []);
+  const righe = ordinaRif(g.bozzaDettaglio().filter((b) => b.quantita > 0 || visibili.has(b.codice)));
   const attive = righe.filter((b) => b.quantita > 0);
   const pezzi = attive.reduce((t, b) => t + b.quantita, 0);
   const oltre = attive.filter((b) => b.oltre).length, spira = attive.filter((b) => b.fuori_spira).length;
