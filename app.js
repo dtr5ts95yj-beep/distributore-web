@@ -4,9 +4,10 @@ const lunediDi = (iso) => piuGiorni(iso, -((new Date(iso + 'T12:00:00').getDay()
 import { drive } from './drive.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
+import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '4.7';
+const VERSIONE = '4.8';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -89,7 +90,24 @@ async function salva() {
   if (drive.collegato && drive.token()) {
     clearTimeout(timerDrive);
     timerDrive = setTimeout(() => drive.salvaDati(g.s).catch((e) => console.warn('Salvataggio su Drive', e)), 2500);
+    aggiornaColleghi();
   }
+}
+
+// ------------------------------------------------------------------ file Excel per i colleghi su Drive (solo in uscita)
+let timerColleghi = null;
+const colleghiAttivo = () => { try { return localStorage.getItem('colleghi') !== 'no'; } catch { return true; } };
+function aggiornaColleghi(subito = false) {
+  if (!colleghiAttivo() || !drive.collegato || !drive.token()) return Promise.resolve();
+  clearTimeout(timerColleghi);
+  return new Promise((ok) => { timerColleghi = setTimeout(async () => {
+    try {
+      const byte = await creaExcel(window.JSZip, fogliColleghi(g, { isoIta }));
+      await drive.salvaPerColleghi('excel', 'Distributore - situazione aggiornata.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', byte);
+      try { localStorage.setItem('colleghi_ultimo', new Date().toISOString()); } catch { /* niente */ }
+    } catch (e) { console.warn('File per i colleghi', e); }
+    ok();
+  }, subito ? 0 : 15000); });
 }
 async function cambia(fn, messaggio) {
   try { const r = fn(); await salva(); if (messaggio) avviso(typeof messaggio === 'function' ? messaggio(r) : messaggio); disegna(); return r; }
@@ -144,6 +162,7 @@ async function sincronizza(manuale = false) {
     }
     await archivio.scrivi('stato', g.s);
     if (nuovi.length || !remoti || (g.s.aggiornato || '') > (remoti.aggiornato || '')) await drive.salvaDati(g.s);
+    aggiornaColleghi(true);
     const pezzi = nuovi.reduce((s, x) => s + (x.pezzi || 0), 0);
     ui.drive = { stato: 'fatto', nuovi, lista: ui.drive.lista || [], ora: new Date(),
       msg: !cartella ? 'Scegli la cartella degli ZIP (Altro)' : nuovi.length ? `${nuovi.length} ZIP nuov${nuovi.length === 1 ? 'o' : 'i'} da Google Drive` : 'Nessuno ZIP nuovo',
@@ -802,7 +821,12 @@ function impostazioni() {
     <div class="campo"><label for="partenza">Prendi i prelievi a partire dal giorno</label><input id="partenza" type="date" value="${esc(imp.zip_partenza ? piuGiorni(imp.zip_partenza, -1) : '')}" data-a-cambio="partenza"></div>
     <small class="tenue">È il giorno dei prelievi, come nel calendario. Lo ZIP di un giorno arriva su Drive il giorno dopo: ci penso io. I giorni prima di questa data restano quelli importati dal programma del PC.</small>
     <button type="button" class="btn secondario piccolo" data-a="controlla">Controlla Drive adesso</button>
-  </div>`;
+  </div>
+  <h2>File per i colleghi</h2>
+  <div class="carta"><small class="tenue">Nel tuo Drive tengo la cartella <b style="color:var(--testo)">"Distributore - per i colleghi"</b> con un Excel sempre aggiornato (rifornimento da preparare, giacenze, prelievi, ZIP) e il PDF dell'ultimo rifornimento. Si aggiorna quando apri l'app e dopo ogni modifica. Condividi la cartella col collega da Google Drive (una volta sola): lui la apre dal PC.</small>
+    <label class="interruttore"><input type="checkbox" data-a-cambio="colleghi" ${colleghiAttivo() ? 'checked' : ''}> Tieni aggiornato il file</label>
+    <small class="tenue">${(() => { try { const u = localStorage.getItem('colleghi_ultimo'); return u ? `Ultimo aggiornamento: ${new Date(u).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Non ancora creato.'; } catch { return ''; } })()}</small>
+    <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="colleghi-ora" ${drive.token() ? '' : 'disabled'}>Aggiorna adesso</button>${drive.linkCartellaColleghi() ? `<a class="btn vuoto piccolo" href="${drive.linkCartellaColleghi()}" target="_blank" rel="noopener">Apri la cartella</a>` : ''}</div></div>`;
 }
 
 function abbinamenti() {
@@ -1248,6 +1272,7 @@ const azioni = {
   'storico-drive': () => importaStoricoDrive(),
   'pref-tema': (el) => { try { localStorage.setItem('pref_tema', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna(); },
   'ctrl-barcode': () => modalitaBarcode(),
+  'colleghi-ora': async (el) => { el.disabled = true; avviso('Aggiorno il file per i colleghi…'); await aggiornaColleghi(true); avviso(localStorage.getItem('colleghi_ultimo') ? 'File per i colleghi aggiornato su Drive.' : 'Non sono riuscito ad aggiornarlo.'); disegna(); },
   'ordine-rif': (el) => { ui.ordineRif = el.dataset.v; try { localStorage.setItem('ordine_rif', ui.ordineRif); } catch { /* niente */ } disegna(); },
   'abb-nuovo': () => foglioAbbinamento(),
   'abb-modifica': (el) => foglioAbbinamento({ chiaveA: el.dataset.chiave || '', desc: el.dataset.desc || '', cp: el.dataset.cp || '', art: el.dataset.art || '' }),
@@ -1305,6 +1330,7 @@ const azioni = {
       await backupLocale('prima del rifornimento');
       const r = g.rifornimentoFatto(); await salva(); disegna();
       avviso(`Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi.`);
+      if (colleghiAttivo() && drive.token()) drive.salvaPerColleghi('pdf', 'Ultimo rifornimento.pdf', 'application/pdf', new Uint8Array(await file.arrayBuffer())).catch((e) => console.warn('PDF per i colleghi', e));
       await condividi(file, 'Rifornimento distributore');
     } catch (e) { avviso('Non fatto: ' + e.message, true); }
     el.disabled = false;
@@ -1358,6 +1384,7 @@ document.addEventListener('change', (e) => {
   if (t.dataset.file === 'dati' && t.files[0]) caricaDati(t.files[0]);
   if (t.dataset.file === 'zip' && t.files.length) importaFileZip([...t.files]);
   if (t.dataset.aCambio === 'ctrl-data') { ui.controllo.data = t.value; }
+  if (t.dataset.aCambio === 'colleghi') { try { localStorage.setItem('colleghi', t.checked ? 'si' : 'no'); } catch { /* niente */ } if (t.checked) aggiornaColleghi(true).then(disegna); }
   if (t.dataset.aCambio === 'st-interni') { ui.storicoInterni = t.checked; disegna(); }
   if (t.dataset.aCambio === 'st-mese') { ui.meseStorico = t.value; ui.quantiStorico = 150; disegna(); }
   if (t.dataset.file === 'storico' && t.files.length) importaFileStorico([...t.files]);

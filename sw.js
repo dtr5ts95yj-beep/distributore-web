@@ -1,6 +1,6 @@
 // Tiene la web app nel telefono: si apre anche senza rete. Google Drive passa sempre dalla rete.
-const VERSIONE = 'distributore-4.7';
-const FILE = ['./', 'index.html', 'app.css', 'app.js', 'logica.js', 'drive.js', 'stampa.js', 'lettore.js', 'manifest.webmanifest',
+const VERSIONE = 'distributore-4.8';
+const FILE = ['./', 'index.html', 'app.css', 'app.js', 'logica.js', 'drive.js', 'stampa.js', 'lettore.js', 'excel.js', 'manifest.webmanifest',
   'lib/jszip.min.js', 'lib/pdf-lib.min.js', 'lib/pdf.min.mjs', 'lib/pdf.worker.min.mjs',
   'icone/icona-192.png', 'icone/icona-512.png', 'icone/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSIONE).then((c) => c.addAll(FILE)).then(() => self.skipWaiting())); });

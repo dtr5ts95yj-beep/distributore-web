@@ -94,6 +94,44 @@ export const drive = {
 
   async scarica(id) { return new Uint8Array(await (await this._chiama(`${API}/files/${id}?alt=media`)).arrayBuffer()); },
 
+  // --------------------------------------------------------------- cartella per i colleghi (solo in uscita)
+  async _cartellaColleghi() {
+    const salvata = leggi('drive_cartella_colleghi');
+    if (salvata) {
+      try { const d = await this._json(`${API}/files/${salvata}?fields=id,trashed`); if (!d.trashed) return salvata; } catch { /* rifatta sotto */ }
+    }
+    const q = "mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners and appProperties has { key='app' and value='distributore-web-colleghi' }";
+    const d = await this._json(`${API}/files?` + new URLSearchParams({ q, fields: 'files(id)', pageSize: '5' }));
+    let id = d.files && d.files[0] ? d.files[0].id : '';
+    if (!id) {
+      const meta = { name: 'Distributore - per i colleghi', mimeType: 'application/vnd.google-apps.folder', appProperties: { app: 'distributore-web-colleghi' } };
+      id = (await this._json(`${API}/files?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) })).id;
+    }
+    scrivi('drive_cartella_colleghi', id);
+    return id;
+  },
+
+  /** Scrive (o riscrive) un file nella cartella per i colleghi; tipo distingue i file (excel, pdf). */
+  async salvaPerColleghi(tipo, nome, mime, byte) {
+    const cartella = await this._cartellaColleghi();
+    const q = `'${cartella}' in parents and trashed = false and appProperties has { key='tipo' and value='${tipo}' }`;
+    const d = await this._json(`${API}/files?` + new URLSearchParams({ q, fields: 'files(id)', pageSize: '5' }));
+    const id = d.files && d.files[0] ? d.files[0].id : '';
+    if (id) {
+      await this._chiama(`${UPLOAD}/files/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': mime }, body: byte });
+      await this._chiama(`${API}/files/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nome }) });
+      return { id, cartella };
+    }
+    const confine = 'distributore' + Date.now();
+    const meta = { name: nome, mimeType: mime, parents: [cartella], appProperties: { app: 'distributore-web', tipo } };
+    const testa = `--${confine}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${confine}\r\nContent-Type: ${mime}\r\n\r\n`;
+    const corpo = new Blob([testa, byte, `\r\n--${confine}--`]);
+    const r = await (await this._chiama(`${UPLOAD}/files?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${confine}` }, body: corpo })).json();
+    return { id: r.id, cartella };
+  },
+
+  linkCartellaColleghi() { const id = leggi('drive_cartella_colleghi'); return id ? `https://drive.google.com/drive/folders/${id}` : ''; },
+
   // --------------------------------------------------------------- file dei dati nel tuo Drive
   async _trovaFileDati() {
     if (this.fileDati) return this.fileDati;
