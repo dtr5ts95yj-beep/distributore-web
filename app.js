@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.9';
+const VERSIONE = '6.0';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -578,7 +578,7 @@ function preparaRifornimento() {
   ${righe.length ? `<div class="lista">${righe.map((b) => `
     <div class="rif ${b.quantita ? '' : 'spento'}"><div class="corpo" role="button" tabindex="0" data-a="articolo" data-codice="${esc(b.codice)}" style="text-align:left;padding:4px 0;cursor:pointer">
         <span class="rif-testa"><b>${esc(b.codice)}</b>${(() => { const m = g.prodotto(b.codice)?.magazzino || 0; return `<span class="mag-chip ${m ? (m >= b.quantita && b.quantita ? 'tanti' : 'si') : 'no'}">mag. ${num(m)}</span>`; })()}</span><small class="tenue taglia">${esc(b.descrizione)}</small>
-        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo}</b> / ${b.carico}` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
+        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo - (b.sospesi || 0)}</b> / ${b.carico}` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.sospesi ? ` · ${b.sospesi} dal controllo, li scala lo ZIP` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
       <button type="button" class="passo" aria-label="${passoSpira(b.codice)} in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
       <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
       <button type="button" class="passo piu" aria-label="${passoSpira(b.codice)} in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}

@@ -880,8 +880,11 @@ export class Gestionale {
       const p = this.s.prodotti[b.codice] || {};
       const dopo = p.quantita == null ? null : p.quantita + b.quantita;
       const spira = p.pezzi_spira;
+      // i pezzi del controllo sul posto in attesa dello ZIP mancano già: non contano per l'eccesso (come in rifornimentoFatto)
+      const sospesi = this.s.controlli.filter((c) => c.codice === b.codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);
+      const pieno = dopo == null ? null : dopo - sospesi;
       return { ...b, descrizione: p.descrizione || b.descrizione, ora: p.quantita, dopo, carico: p.carico_completo, magazzino: p.magazzino || 0,
-        oltre: p.carico_completo != null && dopo != null && dopo > p.carico_completo, eccesso: p.carico_completo != null && dopo != null ? Math.max(0, dopo - p.carico_completo) : 0,
+        oltre: p.carico_completo != null && pieno != null && pieno > p.carico_completo, eccesso: p.carico_completo != null && pieno != null ? Math.max(0, pieno - p.carico_completo) : 0, sospesi,
         spira, fuori_spira: !!(spira && b.quantita % spira), blister: p.in_blister ? p.pezzi_blister : null, modificata: b.quantita !== b.proposta };
     });
   }
@@ -981,9 +984,12 @@ export class Gestionale {
       p.quantita += b.quantita; pezzi += b.quantita;
       this._mov('RIFORNIMENTO', p.codice, p.descrizione, b.quantita, prima, p.quantita, 'Rifornimento',
         b.quantita !== b.proposta ? `Quantità modificata (proposta ${b.proposta})` : '', ora);
-      if (p.carico_completo != null && p.quantita > p.carico_completo) {
-        const ecc = p.quantita - p.carico_completo, pr = p.quantita;
-        p.quantita = p.carico_completo; p.magazzino = (p.magazzino || 0) + ecc;
+      // pezzi segnati nel controllo sul posto e non ancora scalati dallo ZIP: mancano già dal distributore,
+      // quindi non sono "oltre il carico" e non vanno in magazzino (li scala lo ZIP quando arriva)
+      const sospesi = this.s.controlli.filter((c) => c.codice === p.codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);
+      if (p.carico_completo != null && p.quantita - sospesi > p.carico_completo) {
+        const ecc = p.quantita - sospesi - p.carico_completo, pr = p.quantita;
+        p.quantita -= ecc; p.magazzino = (p.magazzino || 0) + ecc;
         this._mov('ECCESSO_MAGAZZINO', p.codice, p.descrizione, -ecc, pr, p.quantita, 'Rifornimento',
           `${ecc} pezzi oltre il carico completo spostati in magazzino (ora ${p.magazzino})`, ora);
       }
