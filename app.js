@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '5.8';
+const VERSIONE = '5.9';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -260,9 +260,21 @@ function disegna() {
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
   const pagine = { barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
-  s.innerHTML = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
+  const html = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
+  // mentre scrivi in una casella la casella resta quella (non si ricrea): la tastiera non si chiude e non torna alle lettere
+  const vivo = document.activeElement, tieni = vivo && vivo.id && vivo.matches('input') && [...s.children].find((c) => c.contains(vivo));
+  if (tieni) {
+    const t = document.createElement('div'); t.innerHTML = html;
+    const nuovi = [...t.children], i = nuovi.findIndex((c) => c.querySelector('#' + CSS.escape(vivo.id)) || c.id === vivo.id);
+    if (i >= 0) {
+      [...s.children].forEach((c) => { if (c !== tieni) c.remove(); });
+      tieni.before(...nuovi.slice(0, i)); tieni.after(...nuovi.slice(i + 1));
+      ui.focus = null;
+      if (vivo.id === 'ctrl-cerca' && vivo.value) vivo.dispatchEvent(new Event('input', { bubbles: true }));   // il filtro resta
+    } else s.innerHTML = html;
+  } else s.innerHTML = html;
   aggiornaNumerino();
   document.querySelectorAll('.striscia.scorre').forEach((el) => { el.scrollLeft = el.scrollWidth; });
   if (document.body.classList.contains('intro') || !disegna.fatto) { disegna.fatto = true; contaNumeri(); }
@@ -1413,6 +1425,15 @@ document.addEventListener('input', (e) => {
   if (k === 'cerca') { ui.cerca = e.target.value; ui.focus = 'cerca-art'; disegna(); }
   if (k === 'cerca-storico') { ui.cercaStorico = e.target.value; ui.quantiStorico = 150; ui.focus = 'cerca-st'; disegna(); }
   if (k === 'cercaAbb') { ui.cercaAbb = e.target.value; ui.focus = 'cerca-abb'; disegna(); }
+});
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (e.key !== 'Enter' || !t.matches || !t.matches('input[type="search"]')) return;
+  e.preventDefault();
+  const y = window.scrollY; t.blur();
+  const primo = t.id === 'ctrl-cerca' ? [...document.querySelectorAll('.ctrl-riga')].find((r) => !r.hidden)
+    : t.id === 'cerca-art' ? document.querySelector('.articolo') : null;
+  if (primo && t.value) primo.scrollIntoView({ block: 'center' }); else window.scrollTo(0, y);
 });
 document.addEventListener('change', (e) => {
   const t = e.target;
