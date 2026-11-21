@@ -7,7 +7,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '6.0';
+const VERSIONE = '6.1';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -489,6 +489,14 @@ function oggi() {
   `;
 }
 
+// mancanti = carico − distributore; dal magazzino = min(mancanti, magazzino); nuovi = il resto
+function testoFonte(manca, mag) {
+  const dal = Math.min(manca, Math.max(0, mag || 0)), nuovi = manca - dal;
+  if (!dal) return `Mancano ${num(manca)} per il pieno`;
+  if (!nuovi) return `Mancano ${num(manca)} per il pieno · prendili dal magazzino, ne ${mag - dal === 1 ? 'resta' : 'restano'} ${num(mag - dal)}`;
+  return `Mancano ${num(manca)} · ${num(dal)} dal magazzino, ${num(nuovi)} da prendere nuovi`;
+}
+
 function articoli() {
   const giroArt = Object.fromEntries(g.prelieviGiro().righe.map((r) => [r.codice, r.totale]));
   const q = chiave(ui.cerca);
@@ -511,7 +519,7 @@ function articoli() {
     const stato = c == null ? '<span class="tenue">Carico completo non impostato: aprilo e scegli Modifica</span>'
       : !manca ? '<span style="color:var(--verde)">Distributore pieno</span>'
       : p.quantita <= 0 && p.magazzino > 0 ? `<span style="color:var(--arancio)">Distributore vuoto: adesso i pezzi escono dal magazzino</span>`
-      : p.magazzino > 0 ? `<span style="color:var(--tenue)">Mancano ${num(manca)} per il pieno · il magazzino resta intatto finché il distributore non è vuoto</span>`
+      : p.magazzino > 0 ? `<span style="color:var(--tenue)">${testoFonte(manca, p.magazzino)}</span>`
       : p.quantita <= 0 ? `<span style="color:var(--rosso)">Distributore vuoto e magazzino vuoto</span>`
       : p.sotto ? `<span style="color:var(--arancio)">Mancano ${num(manca)} per il pieno · sotto la scorta minima</span>`
       : `<span style="color:var(--tenue)">Mancano ${num(manca)} per il pieno: tornano con il rifornimento</span>`;
@@ -578,7 +586,7 @@ function preparaRifornimento() {
   ${righe.length ? `<div class="lista">${righe.map((b) => `
     <div class="rif ${b.quantita ? '' : 'spento'}"><div class="corpo" role="button" tabindex="0" data-a="articolo" data-codice="${esc(b.codice)}" style="text-align:left;padding:4px 0;cursor:pointer">
         <span class="rif-testa"><b>${esc(b.codice)}</b>${(() => { const m = g.prodotto(b.codice)?.magazzino || 0; return `<span class="mag-chip ${m ? (m >= b.quantita && b.quantita ? 'tanti' : 'si') : 'no'}">mag. ${num(m)}</span>`; })()}</span><small class="tenue taglia">${esc(b.descrizione)}</small>
-        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo - (b.sospesi || 0)}</b> / ${b.carico}` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.sospesi ? ` · ${b.sospesi} dal controllo, li scala lo ZIP` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
+        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo - (b.sospesi || 0)}</b> / ${b.carico}` : ''}${b.dal_magazzino ? ` · <b style="color:var(--testo)">${b.nuovi ? `${b.dal_magazzino} dal mag., ${b.nuovi} nuovi` : 'tutti dal magazzino'}</b>` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.sospesi ? ` · ${b.sospesi} dal controllo, li scala lo ZIP` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
       <button type="button" class="passo" aria-label="${passoSpira(b.codice)} in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
       <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
       <button type="button" class="passo piu" aria-label="${passoSpira(b.codice)} in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}
@@ -671,6 +679,8 @@ const ASPETTO_EV = {
   imp: ['#8e8e93', 'Storico importato', '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 20h16"/>'],
   int: ['#636366', 'Distributore ↔ magazzino', '<path d="M7 7h11l-3-3M17 17H6l3 3"/>'],
 };
+// i pezzi presi dallo scaffale durante un rifornimento fanno parte del rifornimento
+function gruppoDi(m) { return m.tipo === 'DAL_MAGAZZINO' && m.rif ? 'rif' : GRUPPO_DI[m.tipo] || 'corr'; }
 function titoloEvento(ev) {
   const [, nome] = ASPETTO_EV[ev.gruppo];
   const o = ev.origine || '';
@@ -684,12 +694,12 @@ function storico() {
   const q = chiave(ui.cercaStorico);
   const filtro = ui.tipoStorico || 'tutti', interni = !!ui.storicoInterni;
   const tutti = g.s.movimenti.filter((m) => (!ui.meseStorico || (m.data_ora || '').startsWith(ui.meseStorico)) && (!q || chiave(m.codice + ' ' + m.descrizione).includes(q)))
-    .filter((m) => { const gr = GRUPPO_DI[m.tipo] || 'corr'; return filtro === 'tutti' ? (interni || gr !== 'int') && gr !== 'imp' : gr === filtro; });
+    .filter((m) => { const gr = gruppoDi(m); return filtro === 'tutti' ? (interni || gr !== 'int') && gr !== 'imp' : gr === filtro; });
   ui._storicoVisti = tutti;
   // eventi: stesso momento, stessa origine, stesso tipo
   const per = new Map();
   for (const m of tutti) {
-    const gr = GRUPPO_DI[m.tipo] || 'corr', k = `${m.data_ora}|${m.origine || ''}|${gr}`;
+    const gr = gruppoDi(m), k = m.rif && gr === 'rif' ? `rif|${m.rif}` : `${m.data_ora}|${m.origine || ''}|${gr}`;
     let ev = per.get(k);
     if (!ev) { ev = { k, gruppo: gr, data_ora: m.data_ora || '', origine: m.origine || '', righe: new Map(), id: m.id }; per.set(k, ev); }
     const r = ev.righe.get(m.codice) || { codice: m.codice, descrizione: m.descrizione, q: 0, note: m.note || '' };
@@ -698,7 +708,7 @@ function storico() {
   }
   const eventi = [...per.values()].sort((a, b) => b.data_ora.localeCompare(a.data_ora) || b.id - a.id);
   const mostra = eventi.slice(0, Math.round(ui.quantiStorico / 5));
-  const tot = (gr) => tutti.filter((m) => GRUPPO_DI[m.tipo] === gr).reduce((t, m) => t + Number(m.quantita || 0), 0);
+  const tot = (gr) => tutti.filter((m) => gruppoDi(m) === gr).reduce((t, m) => t + Number(m.quantita || 0), 0);
   const chip = (k, t) => `<button type="button" class="chip" data-a="tipo-storico" data-tipo="${k}" aria-pressed="${filtro === k}">${t}</button>`;
   let html = '', giorno = '';
   for (const ev of mostra) {
@@ -707,7 +717,7 @@ function storico() {
       if (giorno) html += '</div>';
       giorno = gg;
       const delG = tutti.filter((m) => (m.data_ora || '').startsWith(gg));
-      const pre = -delG.filter((m) => GRUPPO_DI[m.tipo] === 'zip').reduce((t, m) => t + Number(m.quantita || 0), 0), rip = delG.filter((m) => GRUPPO_DI[m.tipo] === 'rif').reduce((t, m) => t + Number(m.quantita || 0), 0);
+      const pre = -delG.filter((m) => gruppoDi(m) === 'zip').reduce((t, m) => t + Number(m.quantita || 0), 0), rip = delG.filter((m) => gruppoDi(m) === 'rif').reduce((t, m) => t + Number(m.quantita || 0), 0);
       html += `<div class="giorno-st"><b>${GIORNI[new Date(gg + 'T12:00').getDay()]} ${isoIta(gg)}</b><span>${pre ? `<i class="meno">−${num(pre)} prelevati</i>` : ''}${rip ? `<i class="piu-t">+${num(rip)} riportati</i>` : ''}</span></div><div class="lista eventi">`;
     }
     const [col, , svg] = ASPETTO_EV[ev.gruppo], righe = [...ev.righe.values()], somma = righe.reduce((t, r) => t + r.q, 0);
@@ -1008,7 +1018,8 @@ function foglioArticolo(codice, modifica = false) {
         ${gr.giorni.length ? `<div class="grafico giro" style="grid-template-columns:repeat(${gr.giorni.length}, 1fr)">${gr.giorni.map((d, k) => `<div class="${manc.has(d) ? 'manca' : ''}"><span class="v">${val[k] || (manc.has(d) ? '?' : '')}</span><span class="b" style="height:${Math.round(val[k] * 100 / mx)}%"></span><span class="e">${SIG[new Date(d + 'T12:00').getDay()]}<br>${Number(d.slice(8))}</span></div>`).join('')}</div>` : ''}
         ${r ? `<div class="giro-lista">${Object.entries(r.giorni).sort().map(([d, q]) => `<span><b>${num(q)}</b> ${GIORNI[new Date(d + 'T12:00').getDay()].slice(0, 3).toLowerCase()} ${isoIta(d).slice(0, 5)}</span>`).join('')}</div>` : '<small class="tenue">Nessun prelievo in questo giro.</small>'}
         ${gr.mancanti.length ? `<small class="tenue">Mancano ancora gli ZIP del ${gr.mancanti.map((d) => isoIta(d).slice(0, 5)).join(', ')}: i loro prelievi arrivano con lo ZIP.</small>` : ''}
-        ${b && b.quantita ? `<div class="giro-rif">Nel rifornimento da preparare: <b>${num(b.quantita)} pezzi</b></div>` : ''}
+        ${p.magazzino > 0 ? '<small class="tenue">Lo ZIP scarica prima il distributore: il magazzino resta intatto finché il distributore non è vuoto.</small>' : ''}
+        ${b && b.quantita ? `<div class="giro-rif">Nel rifornimento da preparare: <b>${num(b.quantita)} pezzi</b>${(() => { const f = g.fonteRifornimento(codice, b.quantita); return f.dal_magazzino ? ` · ${num(f.dal_magazzino)} dal magazzino, ${num(f.nuovi)} nuovi` : ''; })()}</div>` : ''}
       </div>`;
     })()}
     <div class="tre">
@@ -1017,6 +1028,7 @@ function foglioArticolo(codice, modifica = false) {
       <div class="${sotto ? 'allarme' : ''}"><span>Totale</span><strong>${num(disp)}</strong><small>${p.scorta_minima != null ? `scorta min. ${num(p.scorta_minima)}` : 'scorta ?'}</small></div>
     </div>
     ${c ? `<div class="barra grande"><div style="width:${Math.max(0, Math.min(100, Math.round(p.quantita * 100 / c)))}%"></div></div>` : ''}
+    ${c != null ? `<div class="fonte-art">${c - p.quantita > 0 ? testoFonte(c - p.quantita, p.magazzino) : 'Distributore pieno'}</div>` : ''}
     <div class="carta">
       <div>Con i prelievi delle ultime 4 settimane (<b>${num(st.pezzi_28)}</b> pezzi, ${st.media.toLocaleString('it-IT', { maximumFractionDigits: 1 })} al giorno) ti dura ${durata}.</div>
       ${sotto ? '<div style="color:var(--arancio);font-weight:700">Sotto la scorta minima: da riordinare.</div>' : ''}
@@ -1154,7 +1166,7 @@ async function importaFileZip(files) {
 
 async function filePdfRifornimento(etichetta = 'stampato') {
   const righe = ordinaRif(g.s.bozza.filter((b) => b.quantita > 0))
-    .map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione }));
+    .map((b) => ({ ...b, ...g.fonteRifornimento(b.codice, b.quantita), descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione }));
   const pezzi = righe.reduce((s, r) => s + r.quantita, 0);
   const per = periodoBozza();
   const ora = new Date();

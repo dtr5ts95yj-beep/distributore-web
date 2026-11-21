@@ -582,12 +582,13 @@ export class Gestionale {
   eventiRifornimento() {
     const per = new Map();
     this.s.movimenti.forEach((m, i) => {
-      if (m.tipo !== 'RIFORNIMENTO' || !(Number(m.quantita) > 0) || m.annullato || m.origine === 'Rifornimento annullato') return;
+      const daScaffale = m.tipo === 'DAL_MAGAZZINO' && m.rif;
+      if ((m.tipo !== 'RIFORNIMENTO' && !daScaffale) || !(Number(m.quantita) > 0) || m.annullato || m.origine === 'Rifornimento annullato') return;
       const k = m.rif || m.data_ora;
-      const e = per.get(k) || { chiave: k, data_ora: m.data_ora, articoli: 0, pezzi: 0, ordine: i };
-      e.articoli++; e.pezzi += Number(m.quantita); per.set(k, e);
+      const e = per.get(k) || { chiave: k, data_ora: m.data_ora, codici: new Set(), pezzi: 0, ordine: i };
+      e.ordine = Math.min(e.ordine, i); e.codici.add(m.codice); e.pezzi += Number(m.quantita); per.set(k, e);
     });
-    return [...per.values()].sort((a, b) => b.ordine - a.ordine)
+    return [...per.values()].map(({ codici, ...e }) => ({ ...e, articoli: codici.size })).sort((a, b) => b.ordine - a.ordine)
       .map((e) => ({ ...e, app: this.s.rifornimenti.some((r) => (r.id || r.data_ora) === e.chiave || r.data_ora === e.data_ora) }));
   }
 
@@ -612,6 +613,14 @@ export class Gestionale {
         const prima = p.quantita; p.magazzino = (p.magazzino || 0) - daMag; p.quantita -= q - daMag; pezzi += q;
         this._mov('RIFORNIMENTO', m.codice, p.descrizione, -q, prima, p.quantita, 'Rifornimento annullato', `Ripristinato il rifornimento del ${isoIta(e.data_ora.slice(0, 10))}: i pezzi tornano da riportare`, ora);
         const b = this.s.bozza.find((x) => x.codice === m.codice);   // torna con la quantità che avevi stampato
+        if (b) { b.quantita += q; b.proposta += q; } else this.s.bozza.push({ codice: m.codice, descrizione: p.descrizione, proposta: q, quantita: q });
+      }
+      for (const m of this.s.movimenti.filter((x) => x.tipo === 'DAL_MAGAZZINO' && x.rif && Number(x.quantita) > 0 && suoi(x))) {
+        const p = this.s.prodotti[m.codice]; m.annullato = true; if (!p) continue;
+        const q = Number(m.quantita), prima = p.quantita;
+        p.quantita -= q; p.magazzino = (p.magazzino || 0) + q; pezzi += q;
+        this._mov('DAL_MAGAZZINO', m.codice, p.descrizione, -q, prima, p.quantita, 'Rifornimento annullato', `Ripristinato il rifornimento del ${isoIta(e.data_ora.slice(0, 10))}: ${q} pezzi tornano sullo scaffale`, ora);
+        const b = this.s.bozza.find((x) => x.codice === m.codice);
         if (b) { b.quantita += q; b.proposta += q; } else this.s.bozza.push({ codice: m.codice, descrizione: p.descrizione, proposta: q, quantita: q });
       }
       for (const z of this.s.zip) if (z.rifornito === e.data_ora) delete z.rifornito;
@@ -885,8 +894,22 @@ export class Gestionale {
       const pieno = dopo == null ? null : dopo - sospesi;
       return { ...b, descrizione: p.descrizione || b.descrizione, ora: p.quantita, dopo, carico: p.carico_completo, magazzino: p.magazzino || 0,
         oltre: p.carico_completo != null && pieno != null && pieno > p.carico_completo, eccesso: p.carico_completo != null && pieno != null ? Math.max(0, pieno - p.carico_completo) : 0, sospesi,
-        spira, fuori_spira: !!(spira && b.quantita % spira), blister: p.in_blister ? p.pezzi_blister : null, modificata: b.quantita !== b.proposta };
+        spira, fuori_spira: !!(spira && b.quantita % spira), blister: p.in_blister ? p.pezzi_blister : null, modificata: b.quantita !== b.proposta,
+        ...this.fonteRifornimento(b.codice, b.quantita) };
     });
+  }
+
+  /** Da dove prendo i pezzi da riportare: prima lo scaffale (magazzino), il resto nuovi.
+   *  Dal magazzino solo quanti ne stanno nel distributore, a spire (o blister) intere. */
+  fonteRifornimento(codice, q) {
+    const p = this.s.prodotti[codice];
+    q = Math.max(0, Math.round(Number(q) || 0));
+    if (!p || !q || !(p.magazzino > 0)) return { dal_magazzino: 0, nuovi: q };
+    const sospesi = this.s.controlli.filter((c) => c.codice === codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);
+    const posto = p.carico_completo != null ? Math.max(0, p.carico_completo - (p.quantita - sospesi)) : q;
+    const passo = p.in_blister && p.pezzi_blister ? p.pezzi_blister : (p.pezzi_spira || 1);
+    const dal = Math.floor(Math.min(q, posto, p.magazzino) / passo) * passo;
+    return { dal_magazzino: dal, nuovi: q - dal };
   }
 
   aggiungiABozza(codice, q) {
@@ -980,10 +1003,20 @@ export class Gestionale {
     const id = 'rif-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), inizio = this.s.movimenti.length;
     for (const b of righe) {
       const p = this.s.prodotti[b.codice];
-      const prima = p.quantita;
-      p.quantita += b.quantita; pezzi += b.quantita;
-      this._mov('RIFORNIMENTO', p.codice, p.descrizione, b.quantita, prima, p.quantita, 'Rifornimento',
-        b.quantita !== b.proposta ? `Quantità modificata (proposta ${b.proposta})` : '', ora);
+      const { dal_magazzino: dal, nuovi } = this.fonteRifornimento(b.codice, b.quantita);
+      b.dal_magazzino = dal; b.nuovi = nuovi; pezzi += b.quantita;
+      if (dal) {   // pezzi presi dallo scaffale: dal magazzino al distributore, il totale non cambia
+        const prima = p.quantita;
+        p.quantita += dal; p.magazzino -= dal;
+        this._mov('DAL_MAGAZZINO', p.codice, p.descrizione, dal, prima, p.quantita, 'Rifornimento dal magazzino',
+          `${dal} pezzi presi dallo scaffale per il rifornimento (in magazzino ${p.magazzino === 1 ? 'resta' : 'ne restano'} ${p.magazzino})`, ora);
+      }
+      if (nuovi) {
+        const prima = p.quantita;
+        p.quantita += nuovi;
+        this._mov('RIFORNIMENTO', p.codice, p.descrizione, nuovi, prima, p.quantita, 'Rifornimento',
+          [b.quantita !== b.proposta ? `Quantità modificata (proposta ${b.proposta})` : '', dal ? `altri ${dal} dal magazzino` : ''].filter(Boolean).join(' · '), ora);
+      }
       // pezzi segnati nel controllo sul posto e non ancora scalati dallo ZIP: mancano già dal distributore,
       // quindi non sono "oltre il carico" e non vanno in magazzino (li scala lo ZIP quando arriva)
       const sospesi = this.s.controlli.filter((c) => c.codice === p.codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);

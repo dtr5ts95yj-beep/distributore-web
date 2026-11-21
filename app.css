@@ -409,3 +409,5 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
 .giro-lista { display: flex; flex-wrap: wrap; gap: 6px; } .giro-lista span { padding: 4px 10px; border-radius: 99px; background: rgba(255, 255, 255, .06); font-size: 13px; } .giro-lista b { color: var(--rosa); }
 .giro-rif { font-size: 14px; } .giro-rif b { color: var(--rosa); }
 .sp-ver { position: relative; font-size: 13px; font-weight: 600; letter-spacing: .12em; color: rgba(255, 255, 255, .6); animation: sp-testo .7s .8s ease both; }
+
+.fonte-art{font-size:15px;font-weight:600;color:var(--testo);margin-top:-4px}
