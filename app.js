@@ -3,12 +3,13 @@ import { Gestionale, TIPI, leggiZip, oggiIso, isoIta, normalizza, chiave, piuGio
 const lunediDi = (iso) => piuGiorni(iso, -((new Date(iso + 'T12:00:00').getDay() + 6) % 7));
 import { drive } from './drive.js';
 import { ponte, impostaPonte, linkPonte } from './ponte.js';
+import { L, svgL } from './icone.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '6.4';
+const VERSIONE = '7.0';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -70,12 +71,12 @@ function distributorino(stato) {
 }
 
 const ico = {
-  barcode: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>',
-  aggiorna: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>',
-  freccia: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;color:var(--tenue)"><path d="m9 5 7 7-7 7"/></svg>',
-  ok: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--verde);width:28px;height:28px"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>',
-  cerca: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;color:var(--tenue)"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
-  mail: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+  barcode: svgL('barcode'),
+  aggiorna: svgL('aggiorna'),
+  freccia: svgL('freccia', 'ico', 'width:20px;height:20px;color:var(--tenue)'),
+  ok: svgL('ok', 'ico', 'color:var(--verde);width:26px;height:26px'),
+  cerca: svgL('cerca', 'ico', 'width:18px;height:18px;color:var(--tenue)'),
+  mail: svgL('condividi'),
 };
 
 function avviso(testo, errore = false) {
@@ -553,9 +554,9 @@ function oggi() {
   ${esitiNonVisti()}
   ${strisciaZip()}
   <div class="mini3">
-    <button type="button" class="mini" data-a="rif-passo" data-v=""><span class="mi" style="background:#ff9f0a"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><small>Prelevati</small><b>${num(giro.totale)}</b><em>dal ${gg(giro.inizio)}</em></button>
-    <button type="button" class="mini" data-a="vedi-riordino"><span class="mi" style="background:${riordino.length ? '#ff6b3d' : '#34c759'}"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11h11L21 7H6"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg></span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? (riordino.length === 1 ? 'articolo' : 'articoli') : 'tutto ok'}</em></button>
-    <button type="button" class="mini" data-a="pagina-diretta" data-pagina="controllo"><span class="mi" style="background:#ff5f8f"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></span><small>Controllo</small><b>${g.controlliInAttesa().length || '›'}</b><em>${g.controlliInAttesa().length ? 'in attesa dello ZIP' : 'sul posto'}</em></button>
+    <button type="button" class="mini" data-a="rif-passo" data-v=""><span class="mi" style="background:#ff9f0a"><svg viewBox="0 0 24 24">${L.prelievi}</svg></span><small>Prelevati</small><b>${num(giro.totale)}</b><em>dal ${gg(giro.inizio)}</em></button>
+    <button type="button" class="mini" data-a="vedi-riordino"><span class="mi" style="background:${riordino.length ? '#ff6b3d' : '#34c759'}"><svg viewBox="0 0 24 24">${L.carrello}</svg></span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? (riordino.length === 1 ? 'articolo' : 'articoli') : 'tutto ok'}</em></button>
+    <button type="button" class="mini" data-a="pagina-diretta" data-pagina="controllo"><span class="mi" style="background:#ff5f8f"><svg viewBox="0 0 24 24">${L.scan}</svg></span><small>Controllo</small><b>${g.controlliInAttesa().length || '›'}</b><em>${g.controlliInAttesa().length ? 'in attesa dello ZIP' : 'sul posto'}</em></button>
   </div>
   <section class="wid largo">
     <div class="wid-riga"><span class="wid-tit">Più prelevati</span><button type="button" class="link" data-a="rif-passo" data-v="">dal ${gg(giro.inizio)} · ${num(giro.totale)} pz ›</button></div>
@@ -757,12 +758,12 @@ const GRUPPO_DI = {
   DAL_MAGAZZINO: 'int', ECCESSO_MAGAZZINO: 'int', REGOLA_MAGAZZINO: 'int', REINTEGRO_MAGAZZINO: 'int', MODIFICA_ARTICOLO: 'int',
 };
 const ASPETTO_EV = {
-  zip: ['#ff6b81', 'Prelievi dallo ZIP', '<path d="M4 4h12l4 4v12H4z"/><path d="M12 10v6M9 13l3 3 3-3"/>'],
-  rif: ['#34c759', 'Rifornimento', '<path d="M3 7h13v10H3z"/><path d="M16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>'],
-  ctrl: ['#ff9f0a', 'Controllo sul posto', '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
-  corr: ['#0a84ff', 'Correzione', '<path d="M4 20h4L20 8l-4-4L4 16z"/>'],
-  imp: ['#8e8e93', 'Storico importato', '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 20h16"/>'],
-  int: ['#636366', 'Distributore ↔ magazzino', '<path d="M7 7h11l-3-3M17 17H6l3 3"/>'],
+  zip: ['#ff6b81', 'Prelievi dallo ZIP', L.zipprel],
+  rif: ['#34c759', 'Rifornimento', L.camion],
+  ctrl: ['#ff9f0a', 'Controllo sul posto', L.controllo],
+  corr: ['#0a84ff', 'Correzione', L.matita],
+  imp: ['#8e8e93', 'Storico importato', L.scarica],
+  int: ['#636366', 'Distributore ↔ magazzino', L.frecce],
 };
 // i pezzi presi dallo scaffale durante un rifornimento fanno parte del rifornimento
 function gruppoDi(m) { return m.tipo === 'DAL_MAGAZZINO' && m.rif ? 'rif' : GRUPPO_DI[m.tipo] || 'corr'; }
@@ -829,21 +830,21 @@ function storico() {
 
 function altro() {
   const ICONE = {
-    controllo: ['#ff5f8f', '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
-    prelievi: ['#ff9f0a', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
-    riepilogo: ['#af52de', '<path d="M3 4h18v16H3z"/><path d="M7 15l3-3 3 2 4-5"/>'],
-    storico: ['#5e5ce6', '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'],
-    magazzino: ['#a2845e', '<path d="M3 9l9-5 9 5v11H3z"/><path d="M7 20v-7h10v7M7 16h10"/>'],
-    inventario: ['#30b0c7', '<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="M8 12h8M8 16h5"/>'],
-    zipimportati: ['#34c759', '<path d="M4 4h12l4 4v12H4z"/><path d="M10 4v4M10 10v2M10 14v2"/>'],
-    storicoimporta: ['#64d2ff', '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 20h16"/>'],
-    abbinamenti: ['#ff375f', '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'],
-    barcodeab: ['#bf5af2', '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/>'],
-    impostazioni: ['#0a84ff', '<path d="M7 18a5 5 0 0 1-.5-10A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/>'],
-    ignorate: ['#8e8e93', '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>'],
-    aspetto: ['#ff2d92', '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="#fff"/>'],
-    backup: ['#32d74b', '<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/>'],
-    info: ['#636366', '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'],
+    controllo: ['#ff5f8f', L.controllo],
+    prelievi: ['#ff9f0a', L.prelievi],
+    riepilogo: ['#af52de', L.riepilogo],
+    storico: ['#5e5ce6', L.storico],
+    magazzino: ['#a2845e', L.magazzino],
+    inventario: ['#30b0c7', L.inventario],
+    zipimportati: ['#34c759', L.zip],
+    storicoimporta: ['#64d2ff', L.scarica],
+    abbinamenti: ['#ff375f', L.link],
+    barcodeab: ['#bf5af2', L.barcode],
+    impostazioni: ['#0a84ff', L.nuvola],
+    ignorate: ['#8e8e93', L.vieta],
+    aspetto: ['#ff2d92', L.aspetto],
+    backup: ['#32d74b', L.scudo],
+    info: ['#636366', L.info],
   };
   const voce = (pag, titolo, sotto) => { const [col, svg] = ICONE[pag] || ['#636366', '']; return `<button type="button" class="voce menu" data-a="pagina" data-pagina="${pag}"><span class="m-ico" style="background:${col}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg></span><span class="corpo"><b>${titolo}</b><small>${sotto}</small></span>${ico.freccia}</button>`; };
   const attesa = g.controlliInAttesa().length;

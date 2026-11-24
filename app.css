@@ -451,4 +451,61 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
   #avviso { left: calc(var(--lato) + 24px); bottom: 24px; }
   .indietro:hover, .btn:hover, .articolo:hover, .voce:hover { filter: brightness(1.12); }
 }
-@media (min-width: 1500px) { main { grid-template-columns: repeat(4, minmax(0, 1fr)); } main > .vetrina { grid-column: span 3; } main > .mini3 { grid-column: 4; } main > .wid.largo.zipwid { grid-column: span 3; } main > .zipwid ~ .wid.largo:not(.zipwid) { grid-column: 4; } }
+
+/* ================================================================ RESTYLE 7.0 · pulito stile Apple
+   Font Inter e icone Lucide (librerie gratuite usate anche nelle community di Figma). */
+@font-face { font-family: "Inter"; src: url(font/inter-Regular.woff) format("woff"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Inter"; src: url(font/inter-Medium.woff) format("woff"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter"; src: url(font/inter-SemiBold.woff) format("woff"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Inter"; src: url(font/inter-Bold.woff) format("woff"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Inter"; src: url(font/inter-ExtraBold.woff) format("woff"); font-weight: 800; font-display: swap; }
+@font-face { font-family: "Inter"; src: url(font/inter-Black.woff) format("woff"); font-weight: 900; font-display: swap; }
+:root { --raggio: 18px; --filo: rgba(255, 255, 255, .07); --ombra: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 8px 24px rgba(0, 0, 0, .18); }
+html, body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
+/* numeri allineati: le cifre hanno tutte la stessa larghezza */
+strong, .n, .q, .mini b, .numeri strong, .wid strong, .vetrina-dati strong, .stampa b, .qta, .prel b { font-variant-numeric: tabular-nums; }
+main { gap: 16px; }
+h1 { font-size: 30px; font-weight: 700; letter-spacing: -.025em; }
+h2 { font-size: 12px; font-weight: 600; letter-spacing: .05em; margin-top: 10px; }
+.carta, .lista, .articolo, .numeri > div, .mini, .wid, .drive { border-radius: var(--raggio); }
+.carta, .lista, .articolo, .numeri > div, .cerca { border: 1px solid var(--filo); box-shadow: var(--ombra); }
+.voce { padding: 13px 16px; min-height: 60px; gap: 14px; }
+.voce b { font-size: 15.5px; font-weight: 600; letter-spacing: -.01em; }
+.voce small, .tenue { line-height: 1.35; }
+.m-ico { width: 32px; height: 32px; border-radius: 9px; box-shadow: none; }
+.m-ico svg { width: 18px; height: 18px; stroke-width: 2.1; }
+.btn { border-radius: 12px; font-weight: 600; letter-spacing: -.01em; }
+.btn.piccolo { border-radius: 10px; }
+.chip { height: 34px; font-weight: 500; border-color: var(--filo); background: color-mix(in srgb, var(--testo) 5%, transparent); }
+.chip[aria-pressed="true"] { font-weight: 600; }
+.cerca { height: 46px; border-radius: 14px; }
+.articolo { padding: 14px 16px; }
+.articolo .q, .numeri strong { font-weight: 700; letter-spacing: -.02em; }
+.vetrina-dati strong { font-weight: 800; letter-spacing: -.03em; }
+.mini b { font-weight: 800; letter-spacing: -.02em; }
+.ico, .btn svg, nav svg { stroke-width: 1.9; }
+#schede button { font-size: 10.5px; font-weight: 500; letter-spacing: .01em; }
+#schede button svg { width: 25px; height: 25px; stroke-width: 1.7; }
+#schede button[aria-current="page"] { font-weight: 600; }
+#schede button[aria-current="page"] svg { stroke-width: 2.1; }
+.mi svg { width: 17px; height: 17px; fill: none; stroke: #fff; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+#foglio { border-top: 1px solid var(--filo); }
+#avviso { border-radius: 16px; font-weight: 500; }
+
+/* PC: più compatto e al centro dello schermo */
+@media (min-width: 1000px) {
+  html { font-size: 15px; }
+  main { margin: 0 0 0 calc(var(--lato) + max(0px, (100vw - var(--lato) - 1260px) / 2)); padding: 32px 40px 60px; max-width: 1260px; gap: 14px; }
+  h1 { font-size: 26px; }
+  #schede { padding: 24px 12px; }
+  #schede::before { font-size: 17px; letter-spacing: -.01em; }
+  #schede button { font-size: 14px; min-height: 40px; }
+  #schede button svg { width: 20px; height: 20px; }
+  .vetrina { padding: 16px 18px; }
+  .vetrina-dati strong { font-size: 40px; }
+  main > .mini3 { gap: 10px; }
+  .mini { flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; }
+  .mini small { order: 2; } .mini b { order: 3; margin-left: auto; font-size: 22px; } .mini em { display: none; }
+  .voce { min-height: 54px; padding: 11px 16px; }
+  .articolo { gap: 6px; }
+}

@@ -1,0 +1,2 @@
+Inter (rsms.me/inter) — Copyright The Inter Project Authors — SIL Open Font License 1.1 (https://openfontlicense.org).
+Sottoinsieme latino in formato WOFF, usato dalla web app senza modifiche al disegno.
