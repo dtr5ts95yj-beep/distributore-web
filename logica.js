@@ -899,17 +899,27 @@ export class Gestionale {
     });
   }
 
-  /** Da dove prendo i pezzi da riportare: prima lo scaffale (magazzino), il resto nuovi.
-   *  Dal magazzino solo quanti ne stanno nel distributore, a spire (o blister) intere. */
-  fonteRifornimento(codice, q) {
+  /** Regola del rifornimento: il numero in lista sono i pezzi NUOVI che porti. Quando registri,
+   *  quello che manca ancora per il pieno lo prendo dal magazzino (scaffale), se c'è.
+   *  Ritorna quanti pezzi verranno presi dal magazzino se porti q pezzi nuovi. */
+  fonteRifornimento(codice, q = 0) {
     const p = this.s.prodotti[codice];
     q = Math.max(0, Math.round(Number(q) || 0));
-    if (!p || !q || !(p.magazzino > 0)) return { dal_magazzino: 0, nuovi: q };
-    const sospesi = this.s.controlli.filter((c) => c.codice === codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);
-    const posto = p.carico_completo != null ? Math.max(0, p.carico_completo - (p.quantita - sospesi)) : q;
-    const passo = p.in_blister && p.pezzi_blister ? p.pezzi_blister : (p.pezzi_spira || 1);
-    const dal = Math.floor(Math.min(q, posto, p.magazzino) / passo) * passo;
-    return { dal_magazzino: dal, nuovi: q - dal };
+    if (!p || p.carico_completo == null || !(p.magazzino > 0)) return { dal_magazzino: 0, nuovi: q };
+    const manca = p.carico_completo - (p.quantita + q - this._sospesi(codice));
+    return { dal_magazzino: Math.max(0, Math.min(p.magazzino, manca)), nuovi: q };
+  }
+
+  /** Pezzi del controllo sul posto non ancora scalati dallo ZIP: mancano già dal distributore. */
+  _sospesi(codice) {
+    return this.s.controlli.filter((c) => c.codice === codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);
+  }
+
+  /** Tutti gli articoli che al rifornimento verranno riempiti dal magazzino (anche quelli fuori lista). */
+  riempimentiDaMagazzino() {
+    const inBozza = Object.fromEntries(this.s.bozza.map((b) => [b.codice, b.quantita > 0 ? b.quantita : 0]));
+    return Object.values(this.s.prodotti).map((p) => ({ codice: p.codice, descrizione: p.descrizione, ...this.fonteRifornimento(p.codice, inBozza[p.codice] || 0) }))
+      .filter((x) => x.dal_magazzino > 0);
   }
 
   aggiungiABozza(codice, q) {
@@ -1001,25 +1011,16 @@ export class Gestionale {
     const righe = this.s.bozza.filter((b) => b.quantita > 0 && this.s.prodotti[b.codice]);
     let pezzi = 0;
     const id = 'rif-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), inizio = this.s.movimenti.length;
+    const daMag = this.riempimentiDaMagazzino();   // calcolato prima di toccare il distributore
     for (const b of righe) {
       const p = this.s.prodotti[b.codice];
-      const { dal_magazzino: dal, nuovi } = this.fonteRifornimento(b.codice, b.quantita);
-      b.dal_magazzino = dal; b.nuovi = nuovi; pezzi += b.quantita;
-      if (dal) {   // pezzi presi dallo scaffale: dal magazzino al distributore, il totale non cambia
-        const prima = p.quantita;
-        p.quantita += dal; p.magazzino -= dal;
-        this._mov('DAL_MAGAZZINO', p.codice, p.descrizione, dal, prima, p.quantita, 'Rifornimento dal magazzino',
-          `${dal} pezzi presi dallo scaffale per il rifornimento (in magazzino ${p.magazzino === 1 ? 'resta' : 'ne restano'} ${p.magazzino})`, ora);
-      }
-      if (nuovi) {
-        const prima = p.quantita;
-        p.quantita += nuovi;
-        this._mov('RIFORNIMENTO', p.codice, p.descrizione, nuovi, prima, p.quantita, 'Rifornimento',
-          [b.quantita !== b.proposta ? `Quantità modificata (proposta ${b.proposta})` : '', dal ? `altri ${dal} dal magazzino` : ''].filter(Boolean).join(' · '), ora);
-      }
+      const prima = p.quantita;
+      p.quantita += b.quantita; pezzi += b.quantita;
+      this._mov('RIFORNIMENTO', p.codice, p.descrizione, b.quantita, prima, p.quantita, 'Rifornimento',
+        b.quantita !== b.proposta ? `Quantità modificata (proposta ${b.proposta})` : '', ora);
       // pezzi segnati nel controllo sul posto e non ancora scalati dallo ZIP: mancano già dal distributore,
       // quindi non sono "oltre il carico" e non vanno in magazzino (li scala lo ZIP quando arriva)
-      const sospesi = this.s.controlli.filter((c) => c.codice === p.codice && c.stato === 'attesa').reduce((t, c) => t + Math.max(0, (c.mancanti || 0) - (c.assorbiti || 0)), 0);
+      const sospesi = this._sospesi(p.codice);
       if (p.carico_completo != null && p.quantita - sospesi > p.carico_completo) {
         const ecc = p.quantita - sospesi - p.carico_completo, pr = p.quantita;
         p.quantita -= ecc; p.magazzino = (p.magazzino || 0) + ecc;
@@ -1027,12 +1028,24 @@ export class Gestionale {
           `${ecc} pezzi oltre il carico completo spostati in magazzino (ora ${p.magazzino})`, ora);
       }
     }
+    // quello che manca ancora per il pieno lo prendo dallo scaffale: il distributore torna pieno, il magazzino cala
+    for (const x of daMag) {
+      const p = this.s.prodotti[x.codice];
+      const dal = Math.min(x.dal_magazzino, p.magazzino || 0); if (!(dal > 0)) continue;
+      const prima = p.quantita;
+      p.quantita += dal; p.magazzino -= dal; pezzi += dal;
+      this._mov('DAL_MAGAZZINO', p.codice, p.descrizione, dal, prima, p.quantita, 'Rifornimento dal magazzino',
+        `${dal} pezzi presi dallo scaffale per riempire il distributore (in magazzino ${p.magazzino === 1 ? 'resta' : 'ne restano'} ${p.magazzino})`, ora);
+      const b = this.s.bozza.find((y) => y.codice === x.codice);
+      if (b) b.dal_magazzino = dal; else this.s.bozza.push({ codice: x.codice, descrizione: p.descrizione, proposta: 0, quantita: 0, dal_magazzino: dal });
+    }
+    const articoli = new Set([...righe.map((b) => b.codice), ...daMag.map((x) => x.codice)]).size;
     for (const m of this.s.movimenti.slice(inizio)) m.rif = id;          // per annullarlo con precisione
     for (const z of this.s.zip) if (!z.rifornito) z.rifornito = ora;      // calendario: rosso = già riportato
-    this.s.rifornimenti.push({ id, data_ora: ora, articoli: righe.length, pezzi, righe: this.s.bozza.map((b) => ({ ...b })) });
+    this.s.rifornimenti.push({ id, data_ora: ora, articoli, pezzi, righe: this.s.bozza.filter((b) => b.quantita > 0 || b.dal_magazzino > 0).map((b) => ({ ...b })) });
     this.s.bozza = [];
     this._tocca();
-    return { articoli: righe.length, pezzi };
+    return { articoli, pezzi, dal_magazzino: daMag.reduce((t, x) => t + x.dal_magazzino, 0) };
   }
 
   /** Cambia il codice AS400 di un articolo ovunque: giacenze, storico, abbinamenti, rifornimento, controlli. */

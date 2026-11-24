@@ -55,8 +55,8 @@ export function fogliColleghi(g, { isoIta, num = (x) => x }) {
   const bozza = g.s.bozza.filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice));
   const desc = (k) => g.prodotto(k)?.descrizione || '';
   const rif = [['RIFORNIMENTO DA PREPARARE'], [quando], [`Prelievi dal ${isoIta(giro.inizio)}${giro.mancanti.length ? ` · ZIP mancanti: ${giro.mancanti.map(isoIta).join(', ')}` : ''} · ${bozza.length} articoli · ${bozza.reduce((t, b) => t + b.quantita, 0)} pezzi`],
-    ['Codice', 'Descrizione', 'Pezzi da portare', 'Dal magazzino', 'Nuovi', 'Distributore ora', 'Carico completo', 'Magazzino'],
-    ...bozza.map((b) => { const p = g.prodotto(b.codice) || {}, f = g.fonteRifornimento(b.codice, b.quantita); return [b.codice, desc(b.codice), b.quantita, f.dal_magazzino, f.nuovi, p.quantita ?? '', p.carico_completo ?? '', p.magazzino || 0]; })];
+    ['Codice', 'Descrizione', 'Pezzi nuovi da portare', 'Il resto dal magazzino', 'Distributore ora', 'Carico completo', 'Magazzino'],
+    ...bozza.map((b) => { const p = g.prodotto(b.codice) || {}, f = g.fonteRifornimento(b.codice, b.quantita); return [b.codice, desc(b.codice), b.quantita, f.dal_magazzino, p.quantita ?? '', p.carico_completo ?? '', p.magazzino || 0]; })];
   const gia = [['GIACENZE'], [quando], [''],
     ['Codice', 'Descrizione', 'Distributore', 'Magazzino', 'Totale', 'Carico completo', 'Scorta minima', 'Prelevati dall\'ultimo rifornimento', 'Da portare'],
     ...g.elenco().map((p) => [p.codice, p.descrizione, p.quantita, p.magazzino || 0, p.quantita + (p.magazzino || 0), p.carico_completo ?? '', p.scorta_minima ?? '', perArt[p.codice]?.totale || 0, g.s.bozza.find((b) => b.codice === p.codice)?.quantita || 0])];
@@ -68,7 +68,7 @@ export function fogliColleghi(g, { isoIta, num = (x) => x }) {
   const zipRighe = g.giorniZip(Math.max(1, giorni.length)).map((x) => [isoIta(x.giorno), x.stato === 'manca' ? 'MANCA' : x.stato === 'ok' ? 'arrivato' : x.stato, x.zip.map((z) => z.nome).join(', '), x.zip.reduce((t, z) => t + (g.dettaglioZip(z.nome)?.pezzi || 0), 0)]);
   const zip = [['ZIP DEL GIRO'], [quando], [''], ['Giorno dei prelievi', 'Stato', 'File', 'Pezzi'], ...zipRighe];
   return [
-    { nome: 'Rifornimento', righe: rif, larghezze: [16, 40, 16, 14, 10, 16, 16, 12], intestazione: 3 },
+    { nome: 'Rifornimento', righe: rif, larghezze: [16, 40, 20, 20, 16, 16, 12], intestazione: 3 },
     { nome: 'Giacenze', righe: gia, larghezze: [16, 40, 13, 12, 10, 15, 14, 18, 12], intestazione: 3 },
     { nome: 'Prelievi', righe: pre, larghezze: [16, 36, ...giorni.map(() => 8), 10], intestazione: 3 },
     { nome: 'ZIP', righe: zip, larghezze: [20, 12, 40, 10], intestazione: 3 },

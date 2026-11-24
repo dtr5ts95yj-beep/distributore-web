@@ -8,7 +8,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '6.3';
+const VERSIONE = '6.4';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -566,12 +566,12 @@ function oggi() {
   `;
 }
 
-// mancanti = carico − distributore; dal magazzino = min(mancanti, magazzino); nuovi = il resto
+// mancanti = carico − distributore; se non li porti nuovi, al rifornimento li prendo dal magazzino
 function testoFonte(manca, mag) {
   const dal = Math.min(manca, Math.max(0, mag || 0)), nuovi = manca - dal;
   if (!dal) return `Mancano ${num(manca)} per il pieno`;
-  if (!nuovi) return `Mancano ${num(manca)} per il pieno · prendili dal magazzino, ne ${mag - dal === 1 ? 'resta' : 'restano'} ${num(mag - dal)}`;
-  return `Mancano ${num(manca)} · ${num(dal)} dal magazzino, ${num(nuovi)} da prendere nuovi`;
+  if (!nuovi) return `Mancano ${num(manca)} per il pieno · se non li porti li prendo dal magazzino, ne ${mag - dal === 1 ? 'resta' : 'restano'} ${num(mag - dal)}`;
+  return `Mancano ${num(manca)} · ${num(dal)} li può dare il magazzino, ${num(nuovi)} da portare nuovi`;
 }
 
 function articoli() {
@@ -663,12 +663,20 @@ function preparaRifornimento() {
   ${righe.length ? `<div class="lista">${righe.map((b) => `
     <div class="rif ${b.quantita ? '' : 'spento'}"><div class="corpo" role="button" tabindex="0" data-a="articolo" data-codice="${esc(b.codice)}" style="text-align:left;padding:4px 0;cursor:pointer">
         <span class="rif-testa"><b>${esc(b.codice)}</b>${(() => { const m = g.prodotto(b.codice)?.magazzino || 0; return `<span class="mag-chip ${m ? (m >= b.quantita && b.quantita ? 'tanti' : 'si') : 'no'}">mag. ${num(m)}</span>`; })()}</span><small class="tenue taglia">${esc(b.descrizione)}</small>
-        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo - (b.sospesi || 0)}</b> / ${b.carico}` : ''}${b.dal_magazzino ? ` · <b style="color:var(--testo)">${b.nuovi ? `${b.dal_magazzino} dal mag., ${b.nuovi} nuovi` : 'tutti dal magazzino'}</b>` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.sospesi ? ` · ${b.sospesi} dal controllo, li scala lo ZIP` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
+        <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo - (b.sospesi || 0) + (b.dal_magazzino || 0)}</b> / ${b.carico}` : ''}${b.dal_magazzino ? ` · <b style="color:var(--testo)">${b.quantita ? `il resto (${b.dal_magazzino}) dal magazzino` : `${b.dal_magazzino} dal magazzino`}</b>` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.sospesi ? ` · ${b.sospesi} dal controllo, li scala lo ZIP` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
       <button type="button" class="passo" aria-label="${passoSpira(b.codice)} in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
       <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
       <button type="button" class="passo piu" aria-label="${passoSpira(b.codice)} in più per ${esc(b.codice)}" data-a="piu" data-codice="${esc(b.codice)}">+</button></div>`).join('')}</div>` : '<div class="vuoto-msg">Niente da rifornire: i prelievi dei prossimi ZIP compariranno qui.</div>'}
   <button type="button" class="btn vuoto piccolo" data-a="aggiungi-rif">+ Aggiungi un articolo a mano</button>
-  ${attive.length ? `<button type="button" class="stampa prepara" data-a="stampa-fatto"><b>${num(attive.reduce((t, b) => t + b.quantita, 0))}</b><span>Stampa PDF e registra<small>con i barcode · il giro riparte da zero</small></span>${ico.mail}</button>` : ''}
+  ${(() => {
+    // fuori lista: articoli che al rifornimento riempio dallo scaffale (non porti pezzi nuovi)
+    const vis = new Set(righe.map((b) => b.codice));
+    const fuori = g.riempimentiDaMagazzino().filter((x) => !vis.has(x.codice));
+    return fuori.length ? `<div class="carta"><b>Dal magazzino, quando registri</b><small class="tenue">Non porti pezzi nuovi: per riempire il distributore li prendo dallo scaffale.</small>
+      <div class="tenue">${fuori.map((x) => `<b style="color:var(--testo)">${esc(x.codice)}</b> ${esc(x.descrizione)} · ${x.dal_magazzino}`).join('<br>')}</div></div>` : '';
+  })()}
+  ${attive.length ? `<button type="button" class="stampa prepara" data-a="stampa-fatto"><b>${num(attive.reduce((t, b) => t + b.quantita, 0))}</b><span>Stampa PDF e registra<small>con i barcode · il giro riparte da zero</small></span>${ico.mail}</button>`
+    : g.riempimentiDaMagazzino().length ? `<button type="button" class="stampa prepara" data-a="stampa-fatto"><b>${num(g.riempimentiDaMagazzino().reduce((t, x) => t + x.dal_magazzino, 0))}</b><span>Registra dal magazzino<small>niente pezzi nuovi · il distributore torna pieno</small></span>${ico.ok}</button>` : ''}
   ${(() => { const ev = g.eventiRifornimento(); return ev.length ? `<h2>Rifornimenti fatti</h2><div class="tenue">Per tornare indietro: "Ripristina da qui" disfa quel rifornimento e quelli dopo. I loro ZIP tornano liberi e i pezzi tornano da riportare; quello che c'è prima resta solo nello storico.</div>
     <div class="lista">${ev.slice(0, 10).map((e) => `<div class="voce"><span class="corpo"><b>${isoIta(e.data_ora.slice(0, 10))} alle ${e.data_ora.slice(11, 16)}</b><small>${e.articoli} articoli · ${num(e.pezzi)} pezzi${e.app ? '' : ' · fatto col programma'}</small></span>
       ${e.app ? `<button type="button" class="btn vuoto piccolo" data-a="ripdf" data-chiave="${esc(e.chiave)}">PDF</button>` : ''}${e.app ? `<button type="button" class="btn vuoto piccolo" data-a="ripristina-da" data-chiave="${esc(e.chiave)}">Ripristina da qui</button>` : ''}</div>`).join('')}</div>` : ''; })()}`;
@@ -1117,7 +1125,7 @@ function foglioArticolo(codice, modifica = false) {
         ${r ? `<div class="giro-lista">${Object.entries(r.giorni).sort().map(([d, q]) => `<span><b>${num(q)}</b> ${GIORNI[new Date(d + 'T12:00').getDay()].slice(0, 3).toLowerCase()} ${isoIta(d).slice(0, 5)}</span>`).join('')}</div>` : '<small class="tenue">Nessun prelievo in questo giro.</small>'}
         ${gr.mancanti.length ? `<small class="tenue">Mancano ancora gli ZIP del ${gr.mancanti.map((d) => isoIta(d).slice(0, 5)).join(', ')}: i loro prelievi arrivano con lo ZIP.</small>` : ''}
         ${p.magazzino > 0 ? '<small class="tenue">Lo ZIP scarica prima il distributore: il magazzino resta intatto finché il distributore non è vuoto.</small>' : ''}
-        ${b && b.quantita ? `<div class="giro-rif">Nel rifornimento da preparare: <b>${num(b.quantita)} pezzi</b>${(() => { const f = g.fonteRifornimento(codice, b.quantita); return f.dal_magazzino ? ` · ${num(f.dal_magazzino)} dal magazzino, ${num(f.nuovi)} nuovi` : ''; })()}</div>` : ''}
+        ${b && b.quantita ? `<div class="giro-rif">Nel rifornimento da preparare: <b>${num(b.quantita)} pezzi</b>${(() => { const f = g.fonteRifornimento(codice, b.quantita); return f.dal_magazzino ? ` · il resto (${num(f.dal_magazzino)}) dal magazzino` : ''; })()}</div>` : ''}
       </div>`;
     })()}
     <div class="tre">
@@ -1264,7 +1272,7 @@ async function importaFileZip(files) {
 
 async function filePdfRifornimento(etichetta = 'stampato') {
   const righe = ordinaRif(g.s.bozza.filter((b) => b.quantita > 0))
-    .map((b) => ({ ...b, ...g.fonteRifornimento(b.codice, b.quantita), descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione }));
+    .map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione }));
   const pezzi = righe.reduce((s, r) => s + r.quantita, 0);
   const per = periodoBozza();
   const ora = new Date();
@@ -1485,14 +1493,23 @@ const azioni = {
   'piu': (el) => passoRif(el.dataset.codice, 1),
   'stampa-fatto': async (el) => {
     const righe = g.s.bozza.filter((b) => b.quantita > 0), pezzi = righe.reduce((t, b) => t + b.quantita, 0);
-    if (!await chiediConferma({ titolo: 'Stampo e registro?', si: 'Sì, stampa e registra',
-      testo: `Creo il PDF con <b>${num(pezzi)} pezzi</b> di <b>${righe.length} articoli</b> e registro il rifornimento: i pezzi tornano nel distributore (oltre il carico completo in magazzino) e il giro riparte da zero.<br><br><small class="tenue">${esc(periodoBozza())}. Se sbagli: Rifornimenti fatti → Ripristina da qui.</small>` })) return;
+    const mag = g.riempimentiDaMagazzino(), pmag = mag.reduce((t, x) => t + x.dal_magazzino, 0);
+    const testoMag = pmag ? ` Il resto per riempire il distributore lo prendo dal magazzino: <b>${num(pmag)} pezzi</b> di <b>${mag.length} articoli</b>.` : '';
+    if (!await chiediConferma(righe.length ? { titolo: 'Stampo e registro?', si: 'Sì, stampa e registra',
+      testo: `Creo il PDF con <b>${num(pezzi)} pezzi nuovi</b> di <b>${righe.length} articoli</b> e registro il rifornimento: i pezzi tornano nel distributore (oltre il carico completo in magazzino) e il giro riparte da zero.${testoMag}<br><br><small class="tenue">${esc(periodoBozza())}. Se sbagli: Rifornimenti fatti → Ripristina da qui.</small>` }
+      : { titolo: 'Registro dal magazzino?', si: 'Sì, registra', testo: `Non porti pezzi nuovi.${testoMag} Il giro riparte da zero.<br><br><small class="tenue">Se sbagli: Rifornimenti fatti → Ripristina da qui.</small>` })) return;
     el.disabled = true;
     try {
+      if (!righe.length) {
+        await backupLocale('prima del rifornimento');
+        const r = g.rifornimentoFatto(); await salva(); disegna();
+        avviso(`Registrato: ${r.articoli} articoli riempiti dal magazzino, ${r.pezzi} pezzi.`);
+        el.disabled = false; return;
+      }
       const file = await filePdfRifornimento();          // prima il PDF: se non si crea, non registro niente
       await backupLocale('prima del rifornimento');
       const r = g.rifornimentoFatto(); await salva(); disegna();
-      avviso(`Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi.`);
+      avviso(`Rifornimento registrato: ${r.articoli} articoli, ${r.pezzi} pezzi${r.dal_magazzino ? ` (${r.dal_magazzino} dal magazzino)` : ''}.`);
       if (colleghiAttivo() && drive.token()) drive.salvaPerColleghi('pdf', 'Ultimo rifornimento.pdf', 'application/pdf', new Uint8Array(await file.arrayBuffer())).catch((e) => console.warn('PDF per i colleghi', e));
       await condividi(file, 'Rifornimento distributore');
     } catch (e) { avviso('Non fatto: ' + e.message, true); }
