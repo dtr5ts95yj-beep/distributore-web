@@ -8,7 +8,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '6.2';
+const VERSIONE = '6.3';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -89,8 +89,11 @@ let timerDrive = null;
 // Drive è la fonte dei dati: ogni modifica va su Drive; finché non ci arriva resta segnata "da salvare"
 const daSalvare = () => { try { return !!localStorage.getItem('drive_da_salvare'); } catch { return false; } };
 const segnaDaSalvare = (si) => { try { si ? localStorage.setItem('drive_da_salvare', '1') : localStorage.removeItem('drive_da_salvare'); } catch { /* niente */ } };
-async function mandaSuDrive() {
-  try { await drive.salvaDati(g.s); segnaDaSalvare(false); }
+const quantiArticoli = (x) => Object.keys((x && x.prodotti) || {}).length;
+async function mandaSuDrive(forza = false) {
+  // sicurezza: dati senza articoli non vanno mai su Drive (coprirebbero quelli veri)
+  if (!quantiArticoli(g.s)) { console.warn('Dati vuoti: non li mando su Drive'); return; }
+  try { await drive.salvaDati(g.s, forza); segnaDaSalvare(false); }
   catch (e) {
     if (e.conflitto) await prendiDaDrive('I dati erano stati cambiati sull\'altro dispositivo: ho preso quelli di Google Drive. L\'ultima modifica fatta qui non è stata salvata: rifalla.');
     else console.warn('Salvataggio su Drive', e);
@@ -116,6 +119,14 @@ async function prendiDaDrive(messaggio) {
   clearTimeout(timerDrive);
   const remoti = await drive.leggiDati();
   if (!remoti || remoti.formato !== 'distributore-web') return false;
+  if (g && quantiArticoli(g.s) && !quantiArticoli(remoti)) {
+    // su Drive ci sono dati vuoti (es. un dispositivo partito da zero): tengo i miei e li rimetto su Drive
+    drive.versioneNota = drive._lettaVersione;
+    await mandaSuDrive(true);
+    avviso('Su Google Drive c\'erano dati vuoti: ho rimesso quelli di questo dispositivo.', true);
+    return true;
+  }
+  if (g && quantiArticoli(g.s)) await backupLocale('prima di prendere i dati da Drive').catch(() => {});
   g = new Gestionale(normalizza(remoti));
   drive.versioneNota = drive._lettaVersione;
   segnaDaSalvare(false);
@@ -198,10 +209,10 @@ async function sincronizza(manuale = false) {
     let salvaDopo = !vRem || daSalvare();
     if (vRem && vRem !== drive.versioneNota) {
       if (!drive.versioneNota) {
-        // prima volta con questa versione dell'app: vince il più recente
-        const remoti = await drive.leggiDati();
-        if (remoti && remoti.formato === 'distributore-web' && (remoti.aggiornato || '') > (g.s.aggiornato || '')) await prendiDaDrive();
-        else { drive.versioneNota = drive._lettaVersione || vRem; salvaDopo = salvaDopo || (g.s.aggiornato || '') > ((remoti && remoti.aggiornato) || ''); }
+        // prima volta su questo dispositivo (o link nuovo): Drive è la fonte, prendo i suoi dati
+        // (se su Drive non c'è niente di buono, prendiDaDrive tiene i miei e li manda su)
+        if (!(await prendiDaDrive())) { drive.versioneNota = vRem; salvaDopo = true; }
+        else salvaDopo = daSalvare();
       } else {
         const perse = daSalvare();
         await prendiDaDrive(perse ? 'Sull\'altro dispositivo i dati erano stati cambiati: ho preso quelli di Google Drive. Le modifiche fatte qui senza connessione sono state scartate.' : 'Dati aggiornati dall\'altro dispositivo.');
@@ -1413,7 +1424,7 @@ const azioni = {
   'ripdf': async (el) => { const r = g.s.rifornimenti.find((x) => (x.id || x.data_ora) === el.dataset.chiave || x.data_ora === el.dataset.chiave); if (!r || !r.righe) { avviso('PDF non disponibile per questo rifornimento.', true); return; } const righe = r.righe.filter((b) => b.quantita > 0).sort((a, b) => a.codice.localeCompare(b.codice)).map((b) => ({ ...b, descrizione: g.prodotto(b.codice)?.descrizione || b.descrizione })); const byte = await pdfRifornimento(righe, `Rifornimento del ${isoIta(r.data_ora.slice(0, 10))} ${r.data_ora.slice(11, 16)}   ·   ${r.articoli} articoli   ·   ${r.pezzi} pezzi   ·   copia`); condividi(new File([byte], nomeFile(r.data_ora.slice(0, 10)), { type: 'application/pdf' }), 'Rifornimento distributore'); },
   'riabilita': (el) => cambia(() => g.riabilitaDescrizione(el.dataset.chiave), 'Descrizione riabilitata.'),
   'backup-ora': async () => { await backupLocale('copia a mano'); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia fatta.'); disegna(); },
-  'ripristina-locale': async (el) => { if (!confirm('Ripristino questa copia? I dati di adesso vengono sostituiti (prima ne salvo una copia).')) return; const dati = await archivio.leggi(el.dataset.chiave); if (!dati) { avviso('Copia non trovata.', true); return; } await backupLocale('prima del ripristino'); g = new Gestionale(dati); g.s.aggiornato = new Date().toISOString(); await salva(); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia ripristinata.'); disegna(); },
+  'ripristina-locale': async (el) => { if (!confirm('Ripristino questa copia? I dati di adesso vengono sostituiti (prima ne salvo una copia).')) return; const dati = await archivio.leggi(el.dataset.chiave); if (!dati) { avviso('Copia non trovata.', true); return; } await backupLocale('prima del ripristino'); g = new Gestionale(dati); g.s.aggiornato = new Date().toISOString(); await archivio.scrivi('stato', g.s); if (drive.collegato && drive.token()) { segnaDaSalvare(true); await mandaSuDrive(true); } else await salva(); ui.backupElenco = await archivio.leggi('backup_elenco'); avviso('Copia ripristinata.'); disegna(); },
   'esporta-storico': () => {
     const righe = [['Data', 'Ora', 'Tipo', 'Codice', 'Descrizione', 'Quantità', 'Distributore prima', 'Distributore dopo', 'Origine', 'Note']]
       .concat((ui._storicoVisti || []).map((m) => [isoIta((m.data_ora || '').slice(0, 10)), (m.data_ora || '').slice(11, 16), TIPI[m.tipo] || m.tipo, m.codice, m.descrizione, m.quantita, m.prima ?? '', m.dopo ?? '', m.origine || '', m.note || '']));

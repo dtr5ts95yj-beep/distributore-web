@@ -19,6 +19,9 @@ const URL_OK = /^https:\/\/script\.google(usercontent)?\.com\/[A-Za-z0-9/_.?=&-]
   scrivi('ponte_url', url); scrivi('ponte_k', k); scrivi('ponte_ruolo', '');
 })();
 
+// link incollato nella stessa scheda dell'app (cambia solo la parte dopo #): ricarico per usarlo
+window.addEventListener('hashchange', () => { if (location.hash.includes('ponte=')) location.reload(); });
+
 export const ponte = {
   get attivo() { return !!(leggi('ponte_url') && leggi('ponte_k')); },
   get soloLettura() { return leggi('ponte_ruolo') === 'lettura'; },
