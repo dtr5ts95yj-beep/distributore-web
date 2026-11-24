@@ -10,6 +10,8 @@ const NOME_DATI = 'Distributore_dati.json';
 
 const leggi = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 const scrivi = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* niente */ } };
+// versione del file dati = ora dell'ultima modifica su Drive (uguale per telefono, PC e ponte)
+const iso = (t) => { const n = Date.parse(t || ''); return Number.isFinite(n) ? new Date(n).toISOString() : ''; };
 const leggiS = (k) => { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } };
 const scriviS = (k, v) => { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch { /* niente */ } };
 
@@ -56,7 +58,7 @@ export const drive = {
     return 'ok';
   },
 
-  scollega() { scrivi('drive_token', ''); scrivi('drive_collegato', ''); scrivi('drive_file_dati', ''); },
+  scollega() { scrivi('drive_token', ''); scrivi('drive_collegato', ''); scrivi('drive_file_dati', ''); scrivi('drive_versione_dati', ''); },
 
   async _chiama(url, opzioni = {}) {
     const t = this.token();
@@ -158,19 +160,42 @@ export const drive = {
     return id;
   },
 
+  // Drive è la fonte dei dati: ricordo quale versione del file ho letto o scritto io per ultimo.
+  // Se su Drive c'è una versione diversa, l'ha salvata l'altro dispositivo (telefono o PC).
+  get versioneNota() { return leggi('drive_versione_dati'); },
+  set versioneNota(v) { scrivi('drive_versione_dati', v || ''); },
+
+  /** Versione attuale del file dati su Drive ('' se non c'è ancora). Leggera: solo i metadati. */
+  async versioneDati() {
+    const id = await this._trovaFileDati();
+    if (!id) return '';
+    try { return iso((await this._json(`${API}/files/${id}?fields=modifiedTime`)).modifiedTime); }
+    catch (e) { if (/non trovati/.test(e.message)) { this.fileDati = ''; return ''; } throw e; }
+  },
+
   /** Ritorna i dati salvati su Drive (oggetto) oppure null se non ci sono ancora. */
   async leggiDati() {
     const id = await this._trovaFileDati();
     if (!id) return null;
-    try { return await (await this._chiama(`${API}/files/${id}?alt=media`)).json(); }
-    catch (e) { if (/404/.test(e.message) || /non trovati/.test(e.message)) { this.fileDati = ''; return null; } throw e; }
+    try {
+      const v = await this.versioneDati();
+      const dati = await (await this._chiama(`${API}/files/${id}?alt=media`)).json();
+      this._lettaVersione = v;
+      return dati;
+    } catch (e) { if (/404/.test(e.message) || /non trovati/.test(e.message)) { this.fileDati = ''; return null; } throw e; }
   },
 
-  async salvaDati(stato) {
+  /** forza: scrive anche se su Drive c'è una versione dell'altro dispositivo (solo quando l'hai appena letta). */
+  async salvaDati(stato, forza = false) {
     const corpo = JSON.stringify(stato);
     const id = await this._trovaFileDati();
     if (id) {
-      await this._chiama(`${UPLOAD}/files/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: corpo });
+      if (!forza && this.versioneNota) {
+        const ora = await this.versioneDati();
+        if (ora && ora !== this.versioneNota) { const e = new Error('I dati su Drive sono stati cambiati dall\'altro dispositivo.'); e.conflitto = true; throw e; }
+      }
+      const r = await (await this._chiama(`${UPLOAD}/files/${id}?uploadType=media&fields=id,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: corpo })).json();
+      this.versioneNota = iso(r.modifiedTime) || await this.versioneDati();
       return id;
     }
     const confine = 'distributore' + Date.now();
@@ -178,6 +203,7 @@ export const drive = {
     const multipart = `--${confine}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${confine}\r\nContent-Type: application/json\r\n\r\n${corpo}\r\n--${confine}--`;
     const d = await (await this._chiama(`${UPLOAD}/files?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${confine}` }, body: multipart })).json();
     this.fileDati = d.id;
+    this.versioneNota = await this.versioneDati();
     return d.id;
   },
 };

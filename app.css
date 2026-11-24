@@ -411,3 +411,44 @@ body.intro .gradino i { animation: sale .7s .6s cubic-bezier(.3, 1.4, .5, 1) bot
 .sp-ver { position: relative; font-size: 13px; font-weight: 600; letter-spacing: .12em; color: rgba(255, 255, 255, .6); animation: sp-testo .7s .8s ease both; }
 
 .fonte-art{font-size:15px;font-weight:600;color:var(--testo);margin-top:-4px}
+
+/* link del ponte e sola consultazione */
+.ponte-link { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--linea); }
+.solo-lettura { position: sticky; top: calc(var(--alto) + 6px); z-index: 4; align-self: center; justify-self: center; background: var(--arancio); color: #1a1022; font-weight: 800; font-size: 13px; padding: 6px 14px; border-radius: 99px; }
+
+/* ================================================================ PC: schermi larghi
+   Sul telefono non cambia niente: tutto qui sotto vale solo da 1000 px in su. */
+@media (min-width: 1000px) {
+  :root { --lato: 228px; }
+  #schede { top: 0; bottom: 0; right: auto; width: var(--lato); grid-template-columns: 1fr; grid-auto-rows: min-content; align-content: start; gap: 4px;
+    padding: 28px 14px; border-top: 0; border-right: 1px solid var(--linea); }
+  #schede::before { content: "Distributore"; font-size: 20px; font-weight: 900; color: var(--testo); padding: 0 12px 18px; }
+  #schede button { flex-direction: row; justify-content: flex-start; gap: 12px; min-height: 46px; padding: 0 14px; border-radius: 12px; font-size: 15px; }
+  #schede button[aria-current="page"] { background: color-mix(in srgb, var(--rosa) 14%, transparent); }
+  #schede button:hover { background: color-mix(in srgb, var(--testo) 7%, transparent); }
+
+  main { margin-left: var(--lato); max-width: 1280px; padding: 36px 44px 60px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  main > * { grid-column: 1 / -1; }
+  /* Oggi: distributore grande e riquadri affiancati */
+  main > .vetrina { grid-column: span 2; height: 100%; }
+  main > .mini3 { grid-column: 3; grid-template-columns: 1fr; height: 100%; }
+  main { grid-auto-flow: row dense; }
+  main > .wid.largo.zipwid { grid-column: span 2; }
+  main > .zipwid ~ .wid.largo:not(.zipwid) { grid-column: 3; }
+  /* Articoli: schede su tre colonne */
+  main > .articolo { grid-column: auto; height: 100%; }
+  /* Liste lunghe (rifornimento, storico, menu): due colonne */
+  main > .lista:has(> .rif), main > .lista:has(> .voce) { display: grid; grid-template-columns: 1fr 1fr; }
+  main > .lista:has(> .rif) > *, main > .lista:has(> .voce) > * { border-top: 1px solid var(--linea); }
+  main > .lista:has(> .rif) > :nth-child(-n+2), main > .lista:has(> .voce) > :nth-child(-n+2) { border-top: 0; }
+  main > .lista:has(> .rif) > :nth-child(odd), main > .lista:has(> .voce) > :nth-child(odd) { border-right: 1px solid var(--linea); }
+  main > .calendario, main > .legenda { max-width: 980px; }
+  .stampa.prepara { bottom: 20px; }
+  main > .indietro { justify-self: start; }
+  /* schede dell'articolo e fogli: pannello a destra */
+  #foglio { left: auto; top: 0; bottom: 0; width: 560px; max-width: 46vw; max-height: none; border-radius: 22px 0 0 22px; padding: 22px 26px 30px; }
+  #foglio::before { display: none; }
+  #avviso { left: calc(var(--lato) + 24px); bottom: 24px; }
+  .indietro:hover, .btn:hover, .articolo:hover, .voce:hover { filter: brightness(1.12); }
+}
+@media (min-width: 1500px) { main { grid-template-columns: repeat(4, minmax(0, 1fr)); } main > .vetrina { grid-column: span 3; } main > .mini3 { grid-column: 4; } main > .wid.largo.zipwid { grid-column: span 3; } main > .zipwid ~ .wid.largo:not(.zipwid) { grid-column: 4; } }

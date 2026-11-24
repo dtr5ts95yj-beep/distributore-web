@@ -2,12 +2,13 @@ import * as pdfjs from './lib/pdf.min.mjs';
 import { Gestionale, TIPI, leggiZip, oggiIso, isoIta, normalizza, chiave, piuGiorni, dataZip as dataZipNome } from './logica.js';
 const lunediDi = (iso) => piuGiorni(iso, -((new Date(iso + 'T12:00:00').getDay() + 6) % 7));
 import { drive } from './drive.js';
+import { ponte, impostaPonte, linkPonte } from './ponte.js';
 import { pdfRifornimento, pdfInventario, nomeFile } from './stampa.js';
 import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '6.1';
+const VERSIONE = '6.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -85,14 +86,60 @@ function avviso(testo, errore = false) {
 
 // ------------------------------------------------------------------ salvataggio
 let timerDrive = null;
+// Drive è la fonte dei dati: ogni modifica va su Drive; finché non ci arriva resta segnata "da salvare"
+const daSalvare = () => { try { return !!localStorage.getItem('drive_da_salvare'); } catch { return false; } };
+const segnaDaSalvare = (si) => { try { si ? localStorage.setItem('drive_da_salvare', '1') : localStorage.removeItem('drive_da_salvare'); } catch { /* niente */ } };
+async function mandaSuDrive() {
+  try { await drive.salvaDati(g.s); segnaDaSalvare(false); }
+  catch (e) {
+    if (e.conflitto) await prendiDaDrive('I dati erano stati cambiati sull\'altro dispositivo: ho preso quelli di Google Drive. L\'ultima modifica fatta qui non è stata salvata: rifalla.');
+    else console.warn('Salvataggio su Drive', e);
+  }
+}
 async function salva() {
+  if (ponte.attivo && ponte.soloLettura) {
+    avviso(SOLO_LETTURA, true);
+    const salvato = await archivio.leggi('stato').catch(() => null);
+    if (salvato) { g = new Gestionale(normalizza(salvato)); ui.ordineFisso = null; disegna(); }
+    return;
+  }
   await archivio.scrivi('stato', g.s);
+  if (drive.collegato) segnaDaSalvare(true);
   if (drive.collegato && drive.token()) {
     clearTimeout(timerDrive);
-    timerDrive = setTimeout(() => drive.salvaDati(g.s).catch((e) => console.warn('Salvataggio su Drive', e)), 2500);
+    timerDrive = setTimeout(mandaSuDrive, 2500);
     aggiornaColleghi();
   }
 }
+/** Rimpiazza i dati di questo dispositivo con quelli di Drive (salvati dall'altro dispositivo). */
+async function prendiDaDrive(messaggio) {
+  clearTimeout(timerDrive);
+  const remoti = await drive.leggiDati();
+  if (!remoti || remoti.formato !== 'distributore-web') return false;
+  g = new Gestionale(normalizza(remoti));
+  drive.versioneNota = drive._lettaVersione;
+  segnaDaSalvare(false);
+  await archivio.scrivi('stato', g.s);
+  ui.ordineFisso = null;
+  if ($('#foglio') && !$('#foglio').hidden) chiudiFoglio();
+  if (messaggio) avviso(messaggio, /non è stata salvata|scartat/.test(messaggio));
+  disegna();
+  return true;
+}
+// se l'altro dispositivo ha salvato, me ne accorgo quando torni sull'app e ogni minuto mentre è aperta (solo i metadati, leggero)
+let ultimoControllo = 0;
+async function controllaAltroDispositivo() {
+  if (!g || !drive.collegato || !drive.token() || document.hidden || (ui.drive && ui.drive.stato === 'lavoro')) return;
+  if (Date.now() - ultimoControllo < 15000) return;
+  ultimoControllo = Date.now();
+  try {
+    const v = await drive.versioneDati();
+    if (v && drive.versioneNota && v !== drive.versioneNota) await sincronizza();
+  } catch { /* riprovo dopo */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) controllaAltroDispositivo(); });
+window.addEventListener('focus', () => controllaAltroDispositivo());
+setInterval(controllaAltroDispositivo, 60000);
 
 // ------------------------------------------------------------------ file Excel per i colleghi su Drive (solo in uscita)
 let timerColleghi = null;
@@ -121,7 +168,9 @@ function aggiornaColleghi(subito = false) {
     ok();
   }, subito ? 0 : 15000); });
 }
+const SOLO_LETTURA = 'Questo link è solo per consultare: le modifiche si fanno dal telefono.';
 async function cambia(fn, messaggio) {
+  if (ponte.attivo && ponte.soloLettura) { avviso(SOLO_LETTURA, true); return; }
   try { const r = fn(); await salva(); if (messaggio) avviso(typeof messaggio === 'function' ? messaggio(r) : messaggio); disegna(); return r; }
   catch (e) { avviso(e.message || String(e), true); }
 }
@@ -140,16 +189,27 @@ async function sincronizza(manuale = false) {
     if (manuale) drive.accedi(false);
     return;
   }
-  const cartella = g.s.impostazioni.drive_cartella_id;
+  let cartella = g.s.impostazioni.drive_cartella_id;
   ui.drive = { stato: 'lavoro', msg: 'Controllo Google Drive…', sotto: `Cartella ${g.s.impostazioni.drive_cartella_nome || ''}`, nuovi: [], lista: [] };
   disegna();
   try {
-    // 1) dati: se su Drive c'è una versione più nuova (es. dall'altro dispositivo) la prendo
-    const remoti = await drive.leggiDati();
-    if (remoti && remoti.formato === 'distributore-web' && (remoti.aggiornato || '') > (g.s.aggiornato || '')) {
-      g = new Gestionale(remoti);
-      await archivio.scrivi('stato', g.s);
+    // 1) dati: Drive è la fonte. Se l'altro dispositivo (telefono o PC) ha salvato, prendo quelli di Drive.
+    const vRem = await drive.versioneDati();
+    let salvaDopo = !vRem || daSalvare();
+    if (vRem && vRem !== drive.versioneNota) {
+      if (!drive.versioneNota) {
+        // prima volta con questa versione dell'app: vince il più recente
+        const remoti = await drive.leggiDati();
+        if (remoti && remoti.formato === 'distributore-web' && (remoti.aggiornato || '') > (g.s.aggiornato || '')) await prendiDaDrive();
+        else { drive.versioneNota = drive._lettaVersione || vRem; salvaDopo = salvaDopo || (g.s.aggiornato || '') > ((remoti && remoti.aggiornato) || ''); }
+      } else {
+        const perse = daSalvare();
+        await prendiDaDrive(perse ? 'Sull\'altro dispositivo i dati erano stati cambiati: ho preso quelli di Google Drive. Le modifiche fatte qui senza connessione sono state scartate.' : 'Dati aggiornati dall\'altro dispositivo.');
+        salvaDopo = false;
+      }
+      ui.drive = { stato: 'lavoro', msg: 'Controllo Google Drive…', sotto: `Cartella ${g.s.impostazioni.drive_cartella_nome || ''}`, nuovi: [], lista: [] };
     }
+    cartella = g.s.impostazioni.drive_cartella_id;
     // 2) ZIP nuovi nella cartella
     const nuovi = [];
     if (cartella) {
@@ -173,7 +233,7 @@ async function sincronizza(manuale = false) {
       }
     }
     await archivio.scrivi('stato', g.s);
-    if (nuovi.length || !remoti || (g.s.aggiornato || '') > (remoti.aggiornato || '')) await drive.salvaDati(g.s);
+    if (nuovi.length || salvaDopo) { clearTimeout(timerDrive); await mandaSuDrive(); }
     aggiornaColleghi(true);
     const pezzi = nuovi.reduce((s, x) => s + (x.pezzi || 0), 0);
     ui.drive = { stato: 'fatto', nuovi, lista: ui.drive.lista || [], ora: new Date(),
@@ -275,6 +335,7 @@ function disegna() {
       if (vivo.id === 'ctrl-cerca' && vivo.value) vivo.dispatchEvent(new Event('input', { bubbles: true }));   // il filtro resta
     } else s.innerHTML = html;
   } else s.innerHTML = html;
+  if (ponte.attivo && ponte.soloLettura && !s.querySelector('.solo-lettura')) s.insertAdjacentHTML('afterbegin', '<div class="solo-lettura">Solo consultazione · i dati si aggiornano da soli</div>');
   aggiornaNumerino();
   document.querySelectorAll('.striscia.scorre').forEach((el) => { el.scrollLeft = el.scrollWidth; });
   if (document.body.classList.contains('intro') || !disegna.fatto) { disegna.fatto = true; contaNumeri(); }
@@ -285,8 +346,13 @@ function benvenuto() {
   return `<div class="benvenuto carta" style="background:none;gap:16px">
     <img src="icone/icona-192.png" alt="">
     <h1>Distributore</h1>
-    <p class="tenue" style="margin:0;font-size:16px">La prima volta carica i tuoi dati: il file <b>dati_iniziali_distributore.json</b>, oppure un backup.</p>
-    <label class="btn" style="width:100%">Carica i dati<input type="file" accept=".json,application/json" data-file="dati" class="nascosto"></label>
+    <p class="tenue" style="margin:0;font-size:16px">Prendi i tuoi dati da Google Drive: sono gli stessi del telefono (o del PC) e da qui in poi lavori sempre su quelli.</p>
+    ${drive.clientId ? '' : `<div class="campo" style="width:100%;text-align:left"><label for="client-benv">Codice client di Google</label>
+      <input id="client-benv" type="text" placeholder="….apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <small class="tenue">Lo trovi sull'altro dispositivo in Altro → Google Drive: copialo e incollalo qui (solo la prima volta).</small></div>`}
+    <button class="btn" type="button" data-a="dati-da-drive" style="width:100%">Prendi i dati da Google Drive</button>
+    <p class="tenue" style="margin:8px 0 0;font-size:14px">Oppure carica un file di dati o un backup:</p>
+    <label class="btn vuoto" style="width:100%">Carica i dati<input type="file" accept=".json,application/json" data-file="dati" class="nascosto"></label>
     <button class="btn vuoto" type="button" data-a="vuoto" style="width:100%">Parti da zero</button>
   </div>`;
 }
@@ -296,7 +362,7 @@ function cartaDrive() {
   if (!drive.clientId) return `<button type="button" class="drive attenzione" data-a="vai-altro"><span class="icona">${ico.aggiorna}</span><span class="corpo" style="flex-grow:1;display:flex;flex-direction:column"><b>Collega Google Drive</b><small class="tenue">Per prendere gli ZIP da soli · Altro → Google Drive</small></span>${ico.freccia}</button>`;
   const gira = d.stato === 'lavoro' ? ' gira' : '';
   const titolo = d.msg || 'Google Drive';
-  const sotto = d.sotto || (d.stato === 'accedi' ? 'Un tocco e importa gli ZIP nuovi' : '');
+  const sotto = d.stato === 'accedi' && daSalvare() ? 'Hai modifiche non ancora su Drive: tocca per salvarle' : d.sotto || (d.stato === 'accedi' ? 'Un tocco e importa gli ZIP nuovi' : '');
   const azione = d.stato === 'accedi' ? 'accedi' : 'apri-drive';
   return `<button type="button" class="drive${d.stato === 'errore' || d.stato === 'accedi' ? ' attenzione' : ''}" data-a="${azione}">
     <span class="icona"><span class="${gira}" style="display:grid">${ico.aggiorna}</span></span>
@@ -862,8 +928,28 @@ function info() {
   <small class="tenue">I dati stanno in questo dispositivo e, se Drive è collegato, nel file Distributore_dati.json del tuo Google Drive. Il programma della web app è pubblico, i dati no.</small>`;
 }
 
+function cartaPonte() {
+  const l = linkPonte();
+  return `<h2>Link per il PC (senza accedere a Google)</h2>
+  <div class="carta"><small class="tenue">Con il ponte (uno script nel tuo Google) il PC, o un altro telefono, apre l'app con un link e lavora su questi dati senza entrare in Google. Il link vale come una password: chi lo ha vede i dati, e con quello <b>completo</b> può anche modificarli.</small>
+    <div class="campo"><label for="ponte-url">Indirizzo dell'App web dello script</label>
+      <input id="ponte-url" type="url" value="${esc(l ? l.url : '')}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    <div class="affianca"><button type="button" class="btn piccolo" data-a="ponte-imposta" ${drive.token() ? '' : 'disabled'}>${l ? 'Aggiorna il ponte' : 'Collega il ponte'}</button>
+      ${l ? '<button type="button" class="btn vuoto piccolo" data-a="ponte-chiavi">Cambia le chiavi</button>' : ''}</div>
+    ${drive.token() ? '' : '<small class="tenue">Prima accedi a Google qui sopra.</small>'}
+    ${l ? `<div class="ponte-link"><b>Link completo</b> <small class="tenue">vedi e modifichi</small>
+        <div class="affianca"><button type="button" class="btn secondario piccolo" data-a="ponte-copia" data-v="completo">Copia</button><button type="button" class="btn vuoto piccolo" data-a="ponte-condividi" data-v="completo">Condividi</button></div></div>
+      <div class="ponte-link"><b>Link solo consultazione</b> <small class="tenue">vede tutto, non cambia niente</small>
+        <div class="affianca"><button type="button" class="btn secondario piccolo" data-a="ponte-copia" data-v="lettura">Copia</button><button type="button" class="btn vuoto piccolo" data-a="ponte-condividi" data-v="lettura">Condividi</button></div></div>
+      <small class="tenue">"Cambia le chiavi" fa smettere di funzionare i link vecchi: poi rimanda quelli nuovi.</small>` : ''}</div>`;
+}
+
 function impostazioni() {
   const imp = g.s.impostazioni;
+  if (ponte.attivo) return `<h1>Google Drive</h1>
+  <div class="carta"><b>${ponte.soloLettura ? 'Solo consultazione' : 'Collegato con il link'}</b>
+    <small class="tenue">Questo dispositivo usa i dati del tuo Google Drive tramite il ponte, senza accedere a Google. ${ponte.soloLettura ? 'Può solo guardare.' : 'Le modifiche vanno su Drive e le vede anche il telefono.'}</small>
+    <div class="affianca"><button type="button" class="btn secondario piccolo" data-a="controlla">Controlla Drive adesso</button><button type="button" class="btn vuoto piccolo" data-a="ponte-esci">Scollega questo dispositivo</button></div></div>`;
   return `<h1>Google Drive</h1>
   <div class="carta">
     <div class="campo"><label for="client-id">Codice client di Google (ID client OAuth)</label>
@@ -883,7 +969,8 @@ function impostazioni() {
   <div class="carta"><small class="tenue">Nel tuo Drive tengo la cartella <b style="color:var(--testo)">"Distributore - per i colleghi"</b> con un Foglio Google sempre aggiornato (rifornimento da preparare, giacenze, prelievi, ZIP: si apre da Drive senza scaricare niente), il PDF del rifornimento da preparare (come lo vedi tu, con i barcode: un solo file, col giorno nel nome) e il PDF dell'ultimo rifornimento stampato. Si aggiorna quando apri l'app e dopo ogni modifica. Condividi la cartella col collega da Google Drive (una volta sola): lui la apre dal PC.</small>
     <label class="interruttore"><input type="checkbox" data-a-cambio="colleghi" ${colleghiAttivo() ? 'checked' : ''}> Tieni aggiornato il file</label>
     <small class="tenue">${(() => { try { const u = localStorage.getItem('colleghi_ultimo'); return u ? `Ultimo aggiornamento: ${new Date(u).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Non ancora creato.'; } catch { return ''; } })()}</small>
-    <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="colleghi-ora" ${drive.token() ? '' : 'disabled'}>Aggiorna adesso</button>${drive.linkCartellaColleghi() ? `<a class="btn vuoto piccolo" href="${drive.linkCartellaColleghi()}" target="_blank" rel="noopener">Apri la cartella</a>` : ''}</div></div>`;
+    <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="colleghi-ora" ${drive.token() ? '' : 'disabled'}>Aggiorna adesso</button>${drive.linkCartellaColleghi() ? `<a class="btn vuoto piccolo" href="${drive.linkCartellaColleghi()}" target="_blank" rel="noopener">Apri la cartella</a>` : ''}</div></div>
+  ${cartaPonte()}`;
 }
 
 function abbinamenti() {
@@ -1301,6 +1388,12 @@ function scaricaBackup() {
 }
 
 const azioni = {
+  'dati-da-drive': () => {
+    const c = $('#client-benv');
+    if (c) { if (!/apps\.googleusercontent\.com$/.test(c.value.trim())) { avviso('Incolla il codice client di Google (finisce con .apps.googleusercontent.com).', true); return; } drive.clientId = c.value; }
+    try { localStorage.setItem('prendi_da_drive', '1'); } catch { /* niente */ }
+    drive.accedi(false);
+  },
   'vuoto': async () => { g = new Gestionale(null); g.s.impostazioni.zip_partenza = oggiIso(); await salva(); disegna(); },
   'vai-altro': () => { ui.scheda = 'altro'; ui.pagina = 'impostazioni'; disegna(); },
   'accedi': () => { try { drive.accedi(false); } catch (e) { avviso(e.message, true); } },
@@ -1410,6 +1503,24 @@ const azioni = {
     cambia(() => g.nuovoArticolo(codice, descr), 'Articolo aggiunto.').then(() => foglioArticolo(codice.trim().toUpperCase()));
   },
   'salva-client': () => { drive.clientId = $('#client-id').value; avviso(drive.clientId ? 'Codice client salvato.' : 'Codice client tolto.'); disegna(); },
+  'ponte-imposta': async (b, nuove = false) => {
+    const url = ($('#ponte-url') || {}).value || '';
+    b.disabled = true; avviso('Collego il ponte…');
+    try { await impostaPonte(url, g, nuove); avviso(nuove ? 'Chiavi cambiate: i link vecchi non funzionano più.' : 'Ponte collegato: copia il link e aprilo sul PC.'); }
+    catch (e) { avviso(e.message || String(e), true); }
+    disegna();
+  },
+  'ponte-chiavi': (b) => { if (confirm('Cambio le chiavi? I link che hai già dato smettono di funzionare.')) azioni['ponte-imposta'](b, true); },
+  'ponte-copia': async (b) => {
+    const l = linkPonte(); if (!l) return;
+    try { await navigator.clipboard.writeText(l[b.dataset.v]); avviso('Link copiato: incollalo nel browser del PC.'); }
+    catch { prompt('Copia il link:', l[b.dataset.v]); }
+  },
+  'ponte-condividi': async (b) => {
+    const l = linkPonte(); if (!l) return;
+    try { await navigator.share({ title: 'Distributore', url: l[b.dataset.v] }); } catch { azioni['ponte-copia'](b); }
+  },
+  'ponte-esci': () => { if (confirm('Scollego questo dispositivo dal link? Per rientrare serve di nuovo il link.')) { ponte.esci(); location.reload(); } },
   'scollega': () => { if (confirm('Scollego Google Drive da questo dispositivo? I dati restano.')) { drive.scollega(); ui.drive = { stato: 'fermo', msg: '', nuovi: [] }; disegna(); } },
   'scegli-cartella': () => foglioCartelle(),
   'cartella': (el) => cambia(() => { g.s.impostazioni.drive_cartella_id = el.dataset.id; g.s.impostazioni.drive_cartella_nome = el.dataset.nome; g.s.aggiornato = new Date().toISOString(); }, 'Cartella scelta.').then(chiudiFoglio),
@@ -1489,8 +1600,15 @@ async function avvia() {
   try { navigator.storage?.persist?.(); } catch { /* niente */ }
   const salvato = await archivio.leggi('stato').catch(() => null);
   g = salvato ? new Gestionale(normalizza(salvato)) : null;
+  if (!g && drive.clientId && drive.token()) {
+    try {
+      ui.drive = { stato: 'lavoro', msg: 'Prendo i dati da Google Drive…', nuovi: [] };
+      if (!(await prendiDaDrive('Dati presi da Google Drive.'))) avviso('Su Google Drive non ho trovato i dati: aprili prima sul telefono con Drive collegato.', true);
+    } catch (e) { avviso('Google Drive: ' + (e.message || e), true); }
+    try { localStorage.removeItem('prendi_da_drive'); } catch { /* niente */ }
+  }
   disegna();
-  if (!g) return;
+  if (!g) { chiudiSplash(); return; }
   if (ritorno.startsWith('errore:') && !/interaction_required|login_required|consent_required/.test(ritorno)) avviso('Google: accesso non riuscito (' + ritorno.slice(7) + ').', true);
   if (ritorno.startsWith('errore:')) { ui.drive = { stato: 'accedi', msg: 'Tocca per aggiornare da Google Drive', nuovi: [] }; disegna(); return; }
   try {
