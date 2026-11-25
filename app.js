@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.4';
+const VERSIONE = '7.5';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -553,7 +553,7 @@ function oggi() {
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
   ${strisciaZip()}
-  ${(() => { const su = g.consigli().filter((c) => c.tipo === 'piu'); return su.length ? `<button type="button" class="drive consigli-oggi" data-a="pagina-diretta" data-pagina="tendenze"><span class="icona" style="background:#ff9f0a"><svg class="ico" viewBox="0 0 24 24" style="stroke:#fff">${L.prelievi}</svg></span><span class="corpo" style="flex-grow:1;display:flex;flex-direction:column;min-width:0"><b>Tendenze: ${su.length} ${su.length === 1 ? 'articolo da portare in più' : 'articoli da portare in più'}</b><small class="tenue taglia">${su.slice(0, 3).map((c) => `${esc(c.codice)} +${c.extra}`).join(' · ')} · 3 giorni di scorta in più</small></span>${ico.freccia}</button>` : ''; })()}
+  ${(() => { const su = g.consigli().filter((c) => c.tipo === 'piu'); return su.length ? `<button type="button" class="drive consigli-oggi" data-a="pagina-diretta" data-pagina="tendenze"><span class="icona" style="background:#ff9f0a"><svg class="ico" viewBox="0 0 24 24" style="stroke:#fff">${L.prelievi}</svg></span><span class="corpo" style="flex-grow:1;display:flex;flex-direction:column;min-width:0"><b>Tendenze: ${su.length} ${su.length === 1 ? 'articolo da portare in più' : 'articoli da portare in più'}</b><small class="tenue taglia">${su.slice(0, 3).map((c) => `${esc(c.codice)} +${c.extra}`).join(' · ')} · 3 giorni dell'aumento</small></span>${ico.freccia}</button>` : ''; })()}
   <div class="mini3">
     <button type="button" class="mini" data-a="rif-passo" data-v=""><span class="mi" style="background:#ff9f0a"><svg viewBox="0 0 24 24">${L.prelievi}</svg></span><small>Prelevati</small><b>${num(giro.totale)}</b><em>dal ${gg(giro.inizio)}</em></button>
     <button type="button" class="mini" data-a="vedi-riordino"><span class="mi" style="background:${riordino.length ? '#ff6b3d' : '#34c759'}"><svg viewBox="0 0 24 24">${L.carrello}</svg></span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? (riordino.length === 1 ? 'articolo' : 'articoli') : 'tutto ok'}</em></button>
@@ -671,7 +671,7 @@ function preparaRifornimento() {
   <div><h1>Rifornimento</h1><div class="sopra">${per ? esc(per) + ' · ' : ''}${attive.length} articoli · <b style="color:var(--rosa)">${num(pezzi)} pezzi</b></div></div>
   <div class="ordina"><span>Ordina</span>${[['codice', 'Per codice'], ['pezzi', 'Più pezzi prima'], ['descrizione', 'Per descrizione']].map(([v, t]) => `<button type="button" class="chip" data-a="ordine-rif" data-v="${v}" aria-pressed="${(ui.ordineRif || 'codice') === v}">${t}</button>`).join('')}</div>
   ${daAggiungere.length ? `<div class="carta consigli"><div class="riga-titolo"><b>Tendenze: da portare in più</b><button type="button" class="btn piccolo" data-a="consigli-tutti">Aggiungi tutti</button></div>
-    <small class="tenue">Negli ultimi 10 giorni si usano di più: porta giù 3 giorni di scorta in più (quello che non entra nel distributore va sullo scaffale). <button type="button" class="link" data-a="pagina-diretta" data-pagina="tendenze">Vedi tutte le tendenze ›</button></small>
+    <small class="tenue">Negli ultimi 10 giorni si usano di più: porta giù 3 giorni dell'aumento (quello che non entra nel distributore va sullo scaffale). <button type="button" class="link" data-a="pagina-diretta" data-pagina="tendenze">Vedi tutte le tendenze ›</button></small>
     <div class="cons-lista">${daAggiungere.slice(0, 12).map((c) => `<button type="button" class="cons-r" data-a="consiglio" data-codice="${esc(c.codice)}"><b>${esc(c.codice)}</b><small class="tenue taglia">${esc(g.prodotto(c.codice)?.descrizione || '')}</small><span class="cons su">+${c.perc}%</span><span class="cons-piu">+${c.extra}</span></button>`).join('')}</div></div>` : ''}
   ${oltre || spira ? `<div class="carta ${spira ? 'avviso-carta' : ''}">${oltre ? `<div class="tenue">Per <b style="color:var(--testo)">${oltre}</b> ${oltre === 1 ? 'articolo' : 'articoli'} il distributore è già pieno: i pezzi riportati vanno a ripristinare il magazzino.</div>` : ''}${spira ? `<div><b>${spira}</b> ${spira === 1 ? 'quantità non è' : 'quantità non sono'} multipl${spira === 1 ? 'a' : 'e'} dei pezzi per spira.</div>` : ''}</div>` : ''}
   ${righe.length ? `<div class="lista">${righe.map((b) => `
@@ -729,11 +729,11 @@ function tendenze() {
   const riga = (a) => { const p = g.prodotto(a.codice) || {}, fatto = inLista(a.codice)?.consiglio_aggiunto;
     return `<div class="tend">
       <button type="button" class="tend-corpo" data-a="articolo" data-codice="${esc(a.codice)}"><b>${esc(a.codice)}</b><small class="tenue taglia">${esc(p.descrizione || '')}</small>
-        <small class="tenue">${num(a.u10)} pezzi in 10 giorni (prima ${num(a.p10)}) · ${virg(a.media)} al giorno</small></button>
+        <small class="tenue">${num(a.u10)} pezzi in 10 giorni (prima ${num(a.p10)}) · ${a.sale ? `+${virg(a.aumento)} al giorno` : `${virg(a.media)} al giorno`}</small></button>
       <div class="tend-dx">${freccia(a)}${a.extra ? (fatto ? `<small class="tenue">+${fatto} aggiunti</small>` : `<button type="button" class="cons-btn" data-a="consiglio" data-codice="${esc(a.codice)}">+${a.extra}</button>`) : '<small class="tenue">va bene così</small>'}</div></div>`; };
   return `
   <h1>Tendenze</h1>
-  <div class="tenue">I più prelevati degli ultimi 10 giorni, confrontati con i 10 giorni prima. Se un articolo si usa di più ti consiglio di portare giù <b style="color:var(--testo)">3 giorni di scorta in più</b> (la media al giorno × 3, a spire intere). Sotto i 2 pezzi non consiglio niente.</div>
+  <div class="tenue">I più prelevati degli ultimi 10 giorni, confrontati con i 10 giorni prima. Se un articolo si usa almeno il 25% in più ti consiglio di portare giù <b style="color:var(--testo)">3 giorni dell'aumento</b> (i pezzi in più al giorno × 3, a spire intere): il consumo normale lo riporti già col rifornimento. Sotto i 2 pezzi non consiglio niente.</div>
   ${su.length ? `<div class="carta consigli"><div class="riga-titolo"><b>Da portare in più: ${su.length} ${su.length === 1 ? 'articolo' : 'articoli'}</b>${su.some((a) => !inLista(a.codice)?.consiglio_aggiunto) ? '<button type="button" class="btn piccolo" data-a="consigli-tutti">Aggiungi tutti</button>' : ''}</div>
     <small class="tenue">Li aggiungo al rifornimento da preparare: quello che non entra nel distributore va sullo scaffale.</small></div>
     <div class="lista">${su.map(riga).join('')}</div>` : '<div class="carta"><b>Niente in aumento</b><small class="tenue">Negli ultimi 10 giorni nessun articolo si è mosso più del solito.</small></div>'}

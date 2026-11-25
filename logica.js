@@ -795,17 +795,18 @@ export class Gestionale {
   consiglio(codice, oggi = oggiIso()) { return this.consiglioInfo(codice, oggi)?.testo || ''; }
 
   /** Andamento di un articolo: ultimi 10 giorni contro i 10 prima.
-   *  Media al giorno degli ultimi 10 giorni; se si usa di più, il consiglio è portare giù 3 giorni in più
-   *  (media × 3, a spire o blister intere). Sotto i 2 pezzi non consiglio niente: uno in più non serve. */
+   *  Conta solo l'AUMENTO: il consumo normale lo riporti già col rifornimento. Se si usa almeno il 25% in più,
+   *  il consiglio è l'aumento al giorno × 3 giorni, a spire (o blister) intere. Sotto i 2 pezzi niente. */
   andamento(codice, oggi = oggiIso()) {
     const p = this.s.prodotti[codice];
     if (!p) return null;
     const passo = p.in_blister && p.pezzi_blister ? p.pezzi_blister : (p.pezzi_spira || 1);
     const u10 = this._consumoTra(codice, piuGiorni(oggi, -9), oggi), p10 = this._consumoTra(codice, piuGiorni(oggi, -19), piuGiorni(oggi, -10));
-    const media = u10 / 10, tre = Math.ceil(media * 3 - 1e-9);
-    const sale = u10 > p10 && (p10 === 0 || u10 >= p10 * 1.1), perc = p10 > 0 ? Math.round((u10 / p10 - 1) * 100) : (u10 > 0 ? 100 : 0);
+    const media = u10 / 10, aumento = Math.max(0, u10 - p10) / 10;   // pezzi in più al giorno
+    const sale = u10 > p10 && (p10 === 0 || u10 >= p10 * 1.25), perc = p10 > 0 ? Math.round((u10 / p10 - 1) * 100) : (u10 > 0 ? 100 : 0);
+    const tre = Math.ceil(aumento * 3 - 1e-9);
     const extra = sale && tre >= 2 ? Math.ceil(tre / passo) * passo : 0;
-    return { codice, u10, p10, media, perc, sale, extra };
+    return { codice, u10, p10, media, aumento, perc, sale, extra };
   }
 
   /** Come consiglio(), ma con i numeri: { tipo: 'piu' | 'fermo', extra, perc, testo }. */
@@ -814,8 +815,8 @@ export class Gestionale {
     if (!p) return null;
     const a = this.andamento(codice, oggi);
     if (a && a.extra) {
-      const m = Math.round(a.media * 10) / 10;
-      return { tipo: 'piu', extra: a.extra, perc: a.perc, testo: `Ultimi 10 giorni ${a.u10} pezzi contro ${a.p10} dei 10 prima (${m.toString().replace('.', ',')} al giorno): porta giù ${a.extra} pezzi in più, circa 3 giorni di scorta.` };
+      const m = Math.round(a.aumento * 10) / 10;
+      return { tipo: 'piu', extra: a.extra, perc: a.perc, testo: `Ultimi 10 giorni ${a.u10} pezzi contro ${a.p10} dei 10 prima: ${m.toString().replace('.', ',')} in più al giorno. Porta giù ${a.extra} pezzi in più (3 giorni dell'aumento).` };
     }
     const disp = (p.quantita || 0) + (p.magazzino || 0);
     const giorniStoria = Object.keys(this.s.consumi).sort()[0];
