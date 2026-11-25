@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.3';
+const VERSIONE = '7.4';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -264,7 +264,7 @@ async function sincronizza(manuale = false) {
 setInterval(() => { const o = document.getElementById('orologio'); if (o) o.textContent = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }, 20000);
 
 // ---------- colori: Giorno = rosa e viola, Notte = coppia scelta; Automatico cambia da solo alle 7 e alle 19
-const COLORI_NOTTE = [['grafite', 'Grafite e azzurro', '#5ac8fa', '#6e7f99'], ['verdeblu', 'Verde e blu', '#34d399', '#0a84ff'], ['arancioblu', 'Arancio e blu notte', '#ff9f0a', '#3b82f6'], ['smeraldo', 'Smeraldo e oro', '#10b981', '#f5b301'], ['indaco', 'Indaco e lime', '#818cf8', '#a3e635']];
+const COLORI_NOTTE = [['viola', 'Rosa e viola (era il giorno)', '#ff6fb5', '#b44dff'], ['grafite', 'Grafite e azzurro', '#5ac8fa', '#6e7f99'], ['verdeblu', 'Verde e blu', '#34d399', '#0a84ff'], ['arancioblu', 'Arancio e blu notte', '#ff9f0a', '#3b82f6'], ['smeraldo', 'Smeraldo e oro', '#10b981', '#f5b301'], ['indaco', 'Indaco e lime', '#818cf8', '#a3e635']];
 const pref = (k, d) => { try { return localStorage.getItem('pref_' + k) || d; } catch { return d; } };
 function eNotte() {   // Chiaro = giorno, Scuro = notte, Automatico = come l'iPhone
   const t = pref('tema', 'auto');
@@ -287,11 +287,11 @@ try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () =
 function aspetto() {
   const col = pref('colori', 'grafite');
   return `<h1>Aspetto e colori</h1>
-  <div class="tenue">Chiaro è rosa e viola, Scuro usa i colori della notte che scegli qui sotto. Automatico fa come l'iPhone (Impostazioni → Schermo e luminosità): se lì hai Automatico, diventa scura al tramonto.</div>
+  <div class="tenue">Chiaro è bianco e viola come le app dell'iPhone, Scuro usa i colori della notte che scegli qui sotto. Automatico fa come l'iPhone (Impostazioni → Schermo e luminosità): se lì hai Automatico, diventa scura al tramonto.</div>
   <div class="carta"><b>Aspetto</b><div class="segmenti">${[['chiaro', 'Chiaro'], ['scuro', 'Scuro'], ['auto', 'Automatico']].map(([v, t]) => `<button type="button" data-a="pref-tema" data-v="${v}" aria-pressed="${pref('tema', 'auto') === v}">${t}</button>`).join('')}</div>
-    <small class="tenue">${pref('tema', 'auto') === 'auto' ? `Automatico segue l'iPhone: adesso è ${eNotte() ? '<b>scuro</b>' : '<b>chiaro</b>'}.` : pref('tema', 'auto') === 'scuro' ? 'Sempre scuro, con i colori della notte.' : 'Sempre chiaro, rosa e viola.'}</small></div>
+    <small class="tenue">${pref('tema', 'auto') === 'auto' ? `Automatico segue l'iPhone: adesso è ${eNotte() ? '<b>scuro</b>' : '<b>chiaro</b>'}.` : pref('tema', 'auto') === 'scuro' ? 'Sempre scuro, con i colori della notte.' : 'Sempre chiaro, bianco e viola.'}</small></div>
   <h2>Chiaro</h2>
-  <div class="colori-scelta"><button type="button" aria-pressed="${!eNotte()}" disabled><span class="campione"><i style="background:#ff6fb5"></i><i style="background:#b44dff"></i></span><b>Rosa e viola</b></button></div>
+  <div class="colori-scelta"><button type="button" aria-pressed="${!eNotte()}" disabled><span class="campione"><i style="background:#f2f2f7;border:1px solid #d1d1d6"></i><i style="background:#6d28d9"></i></span><b>Bianco e viola</b></button></div>
   <h2>Colori dello scuro</h2>
   <div class="colori-scelta">${COLORI_NOTTE.map(([k, t, c1, c2]) => `<button type="button" data-a="pref-colori" data-v="${k}" aria-pressed="${col === k}"><span class="campione"><i style="background:${c1}"></i><i style="background:${c2}"></i></span><b>${t}</b></button>`).join('')}</div>
   <small class="tenue">Toccando un colore della notte lo vedi subito.</small>

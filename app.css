@@ -529,3 +529,33 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: .05em; margin-top: 10px;
 .tend-dx { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .cons.giu { background: color-mix(in srgb, var(--verde) 16%, transparent); color: var(--verde); }
 .carta .link { background: none; border: 0; padding: 0; color: var(--rosa); font-weight: 600; font-size: inherit; }
+
+/* ================================================================ GIORNO: chiaro vero, stile iPhone (anteprima) */
+html:not([data-colori]) {
+  --fondo: #f2f2f7; --scheda: #ffffff; --scheda2: #ffffff; --linea: #e5e5ea; --bordo: #d1d1d6; --testo: #1c1c1e; --tenue: #6e6e73;
+  --rosa: #6d28d9; --viola: #6d28d9; --viola2: #ede9fe; --arancio: #c76a00; --verde: #248a3d; --rosso: #d70015;
+  --a1: #a78bfa; --a2: #7c3aed; --a3: #6d28d9; --chip: #f2f2f7; --bordo2: #ddd6fe;
+  --eroe1: #ede9fe; --eroe2: #f5f3ff; --eroe3: #ffffff; --wid1: #ffffff; --wid2: #ffffff; --tit: #6d28d9;
+  --filo: rgba(0, 0, 0, .06); --ombra: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 18px rgba(0, 0, 0, .05);
+  color-scheme: light;
+}
+html:not([data-colori]) .btn.secondario { color: #5b21b6; }
+html:not([data-colori]) .btn.pericolo { background: #ffe5e9; color: #b0001c; }
+html:not([data-colori]) .chip[aria-pressed="true"] { background: #1c1c1e; color: #fff; border-color: #1c1c1e; }
+html:not([data-colori]) #schede { background: rgba(249, 249, 251, .92); }
+html:not([data-colori]) #schede button { color: #8e8e93; }
+html:not([data-colori]) #schede button[aria-current="page"] { color: var(--viola); }
+html:not([data-colori]) .mini, html:not([data-colori]) .wid, html:not([data-colori]) .drive { border: 1px solid var(--filo); box-shadow: var(--ombra); background: #fff; }
+html:not([data-colori]) .vetrina { border: 1px solid #e9e3ff; box-shadow: var(--ombra); }
+html:not([data-colori]) .vetrina-dati span { color: #5b21b6; }
+html:not([data-colori]) .vetrina-luce { opacity: .35; }
+html:not([data-colori]) .mag-chip.no { background: #f2f2f7; color: #8e8e93; }
+html:not([data-colori]) #foglio { background: #fff; }
+html:not([data-colori]) #velo { background: rgba(0, 0, 0, .25); }
+html:not([data-colori]) #avviso { background: #1c1c1e; color: #fff; }
+html:not([data-colori]) .frase { color: #3a3a3c; } html:not([data-colori]) .frase.rossa { color: var(--rosso); }
+html:not([data-colori]) .cella.rossa { background: #ffe5e9; } html:not([data-colori]) .cella.rossa .art { color: #b0001c; }
+html:not([data-colori]) .anello span { color: #5b21b6; }
+html:not([data-colori]) #avviso.errore { background: #d70015; color: #fff; }
+html:not([data-colori]) .cella.verde { background: #d8f3e0; } html:not([data-colori]) .cella.verde .art { color: #1e6b34; } html:not([data-colori]) .cella.manca { border-color: #d70015; } html:not([data-colori]) .cella.manca .art { color: #d70015; }
+html:not([data-colori]) .legenda i.verde { background: #d8f3e0; border: 1px solid #1e6b34; } html:not([data-colori]) .legenda i.rossa { background: #fde8ec; border: 1px solid #b0001c; } html:not([data-colori]) .legenda i.manca { border-color: #d70015; }
