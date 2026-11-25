@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.0';
+const VERSIONE = '7.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -331,10 +331,10 @@ function disegna() {
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
+  const pagine = { tendenze, barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
   const html = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
-    : ({ oggi, articoli, rifornimento, calendario, altro })[ui.scheda]();
+    : ({ oggi, articoli, prelievi, rifornimento, calendario, altro })[ui.scheda]();
   // mentre scrivi in una casella la casella resta quella (non si ricrea): la tastiera non si chiude e non torna alle lettere
   const vivo = document.activeElement, tieni = vivo && vivo.id && vivo.matches('input') && [...s.children].find((c) => c.contains(vivo));
   if (tieni) {
@@ -553,6 +553,7 @@ function oggi() {
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
   ${strisciaZip()}
+  ${(() => { const su = g.consigli().filter((c) => c.tipo === 'piu'); return su.length ? `<button type="button" class="drive consigli-oggi" data-a="pagina-diretta" data-pagina="tendenze"><span class="icona" style="background:#ff9f0a"><svg class="ico" viewBox="0 0 24 24" style="stroke:#fff">${L.prelievi}</svg></span><span class="corpo" style="flex-grow:1;display:flex;flex-direction:column;min-width:0"><b>Tendenze: ${su.length} ${su.length === 1 ? 'articolo da portare in più' : 'articoli da portare in più'}</b><small class="tenue taglia">${su.slice(0, 3).map((c) => `${esc(c.codice)} +${c.extra}`).join(' · ')} · 3 giorni di scorta in più</small></span>${ico.freccia}</button>` : ''; })()}
   <div class="mini3">
     <button type="button" class="mini" data-a="rif-passo" data-v=""><span class="mi" style="background:#ff9f0a"><svg viewBox="0 0 24 24">${L.prelievi}</svg></span><small>Prelevati</small><b>${num(giro.totale)}</b><em>dal ${gg(giro.inizio)}</em></button>
     <button type="button" class="mini" data-a="vedi-riordino"><span class="mi" style="background:${riordino.length ? '#ff6b3d' : '#34c759'}"><svg viewBox="0 0 24 24">${L.carrello}</svg></span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? (riordino.length === 1 ? 'articolo' : 'articoli') : 'tutto ok'}</em></button>
@@ -657,13 +658,26 @@ function preparaRifornimento() {
   const pezzi = attive.reduce((t, b) => t + b.quantita, 0);
   const oltre = attive.filter((b) => b.oltre).length, spira = attive.filter((b) => b.fuori_spira).length;
   const per = periodoBozza();
+  const CONS = Object.fromEntries(g.consigli().map((c) => [c.codice, c]));
+  const inLista = (k) => g.s.bozza.find((x) => x.codice === k);
+  const daAggiungere = Object.values(CONS).filter((c) => c.tipo === 'piu' && !inLista(c.codice)?.consiglio_aggiunto);
+  const etichetta = (b) => {
+    const c = CONS[b.codice]; if (!c) return '';
+    if (c.tipo === 'piu') { const fatto = inLista(b.codice)?.consiglio_aggiunto;
+      return `<span class="cons su">↑ +${c.perc}%${fatto ? ` · +${fatto} consigliati aggiunti` : ''}</span>${fatto ? '' : `<button type="button" class="cons-btn" data-a="consiglio" data-codice="${esc(b.codice)}">+${c.extra} consigliati</button>`}`; }
+    return b.quantita ? `<span class="cons fermo">fermo · non riportarne</span><button type="button" class="cons-btn" data-a="consiglio" data-codice="${esc(b.codice)}">Metti a 0</button>` : '';
+  };
   return `
   <div><h1>Rifornimento</h1><div class="sopra">${per ? esc(per) + ' · ' : ''}${attive.length} articoli · <b style="color:var(--rosa)">${num(pezzi)} pezzi</b></div></div>
   <div class="ordina"><span>Ordina</span>${[['codice', 'Per codice'], ['pezzi', 'Più pezzi prima'], ['descrizione', 'Per descrizione']].map(([v, t]) => `<button type="button" class="chip" data-a="ordine-rif" data-v="${v}" aria-pressed="${(ui.ordineRif || 'codice') === v}">${t}</button>`).join('')}</div>
+  ${daAggiungere.length ? `<div class="carta consigli"><div class="riga-titolo"><b>Tendenze: da portare in più</b><button type="button" class="btn piccolo" data-a="consigli-tutti">Aggiungi tutti</button></div>
+    <small class="tenue">Negli ultimi 10 giorni si usano di più: porta giù 3 giorni di scorta in più (quello che non entra nel distributore va sullo scaffale). <button type="button" class="link" data-a="pagina-diretta" data-pagina="tendenze">Vedi tutte le tendenze ›</button></small>
+    <div class="cons-lista">${daAggiungere.slice(0, 12).map((c) => `<button type="button" class="cons-r" data-a="consiglio" data-codice="${esc(c.codice)}"><b>${esc(c.codice)}</b><small class="tenue taglia">${esc(g.prodotto(c.codice)?.descrizione || '')}</small><span class="cons su">+${c.perc}%</span><span class="cons-piu">+${c.extra}</span></button>`).join('')}</div></div>` : ''}
   ${oltre || spira ? `<div class="carta ${spira ? 'avviso-carta' : ''}">${oltre ? `<div class="tenue">Per <b style="color:var(--testo)">${oltre}</b> ${oltre === 1 ? 'articolo' : 'articoli'} il distributore è già pieno: i pezzi riportati vanno a ripristinare il magazzino.</div>` : ''}${spira ? `<div><b>${spira}</b> ${spira === 1 ? 'quantità non è' : 'quantità non sono'} multipl${spira === 1 ? 'a' : 'e'} dei pezzi per spira.</div>` : ''}</div>` : ''}
   ${righe.length ? `<div class="lista">${righe.map((b) => `
     <div class="rif ${b.quantita ? '' : 'spento'}"><div class="corpo" role="button" tabindex="0" data-a="articolo" data-codice="${esc(b.codice)}" style="text-align:left;padding:4px 0;cursor:pointer">
         <span class="rif-testa"><b>${esc(b.codice)}</b>${(() => { const m = g.prodotto(b.codice)?.magazzino || 0; return `<span class="mag-chip ${m ? (m >= b.quantita && b.quantita ? 'tanti' : 'si') : 'no'}">mag. ${num(m)}</span>`; })()}</span><small class="tenue taglia">${esc(b.descrizione)}</small>
+        ${etichetta(b) ? `<span class="cons-riga">${etichetta(b)}</span>` : ''}
         <small class="tenue">ora ${b.ora ?? '—'}${b.carico != null ? ` → <b style="color:${b.oltre ? 'var(--arancio)' : 'var(--testo)'}">${b.dopo - (b.sospesi || 0) + (b.dal_magazzino || 0)}</b> / ${b.carico}` : ''}${b.dal_magazzino ? ` · <b style="color:var(--testo)">${b.quantita ? `il resto (${b.dal_magazzino}) dal magazzino` : `${b.dal_magazzino} dal magazzino`}</b>` : ''}${b.oltre ? ` · +${b.eccesso} in mag.` : ''}${b.sospesi ? ` · ${b.sospesi} dal controllo, li scala lo ZIP` : ''}${b.modificata ? ` · proposti ${b.proposta}` : ''}${b.blister ? ` · blister da ${b.blister}` : ''}${b.fuori_spira ? ` · <b style="color:var(--arancio)">spira da ${b.spira}</b>` : ''}</small></div>
       <button type="button" class="passo" aria-label="${passoSpira(b.codice)} in meno per ${esc(b.codice)}" data-a="meno" data-codice="${esc(b.codice)}">−</button>
       <span class="n">${b.quantita}${passoSpira(b.codice) > 1 ? `<small>± ${passoSpira(b.codice)}</small>` : ''}</span>
@@ -706,6 +720,25 @@ function calendario() {
   <div class="calendario"><span>Lun</span><span>Mar</span><span>Mer</span><span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span>${celle}</div>
   <div class="legenda"><span><i class="verde"></i>ZIP da riportare</span><span><i class="rossa"></i>già riportato</span><span><i class="manca"></i>ZIP mancante</span></div>
   <small class="tenue">Il giorno è quello dei prelievi. Tocca un giorno per la distinta: articoli e pezzi.</small>`;
+}
+
+function tendenze() {
+  const t = g.tendenze(), su = t.filter((a) => a.extra), inLista = (k) => g.s.bozza.find((x) => x.codice === k);
+  const virg = (n) => (Math.round(n * 10) / 10).toString().replace('.', ',');
+  const freccia = (a) => (a.sale ? `<span class="cons su">↑ +${a.perc}%</span>` : a.u10 < a.p10 ? `<span class="cons giu">↓ ${a.perc}%</span>` : '<span class="cons fermo">=</span>');
+  const riga = (a) => { const p = g.prodotto(a.codice) || {}, fatto = inLista(a.codice)?.consiglio_aggiunto;
+    return `<div class="tend">
+      <button type="button" class="tend-corpo" data-a="articolo" data-codice="${esc(a.codice)}"><b>${esc(a.codice)}</b><small class="tenue taglia">${esc(p.descrizione || '')}</small>
+        <small class="tenue">${num(a.u10)} pezzi in 10 giorni (prima ${num(a.p10)}) · ${virg(a.media)} al giorno</small></button>
+      <div class="tend-dx">${freccia(a)}${a.extra ? (fatto ? `<small class="tenue">+${fatto} aggiunti</small>` : `<button type="button" class="cons-btn" data-a="consiglio" data-codice="${esc(a.codice)}">+${a.extra}</button>`) : '<small class="tenue">va bene così</small>'}</div></div>`; };
+  return `
+  <h1>Tendenze</h1>
+  <div class="tenue">I più prelevati degli ultimi 10 giorni, confrontati con i 10 giorni prima. Se un articolo si usa di più ti consiglio di portare giù <b style="color:var(--testo)">3 giorni di scorta in più</b> (la media al giorno × 3, a spire intere). Sotto i 2 pezzi non consiglio niente.</div>
+  ${su.length ? `<div class="carta consigli"><div class="riga-titolo"><b>Da portare in più: ${su.length} ${su.length === 1 ? 'articolo' : 'articoli'}</b>${su.some((a) => !inLista(a.codice)?.consiglio_aggiunto) ? '<button type="button" class="btn piccolo" data-a="consigli-tutti">Aggiungi tutti</button>' : ''}</div>
+    <small class="tenue">Li aggiungo al rifornimento da preparare: quello che non entra nel distributore va sullo scaffale.</small></div>
+    <div class="lista">${su.map(riga).join('')}</div>` : '<div class="carta"><b>Niente in aumento</b><small class="tenue">Negli ultimi 10 giorni nessun articolo si è mosso più del solito.</small></div>'}
+  <h2>Tutti i più prelevati</h2>
+  <div class="lista">${t.filter((a) => !a.extra).slice(0, 40).map(riga).join('') || '<div class="voce"><small class="tenue">Nessun prelievo negli ultimi 20 giorni.</small></div>'}</div>`;
 }
 
 function prelievi() {
@@ -831,6 +864,7 @@ function storico() {
 function altro() {
   const ICONE = {
     controllo: ['#ff5f8f', L.controllo],
+    tendenze: ['#ff9f0a', L.riepilogo],
     prelievi: ['#ff9f0a', L.prelievi],
     riepilogo: ['#af52de', L.riepilogo],
     storico: ['#5e5ce6', L.storico],
@@ -854,7 +888,7 @@ function altro() {
   <h2>Ogni giorno</h2>
   <div class="lista">
     ${voce('controllo', 'Controllo sul posto', attesa ? `${attesa} in attesa dello ZIP` : 'Segna i pezzi mancanti al distributore')}
-    ${voce('prelievi', 'Prelievi dall\'ultimo rifornimento', `${num(g.prelieviGiro().totale)} pezzi dal ${isoIta(g.inizioGiro())}, articolo per articolo`)}
+    ${voce('tendenze', 'Tendenze', (() => { const n = g.consigli().filter((c) => c.tipo === 'piu').length; return n ? `${n} ${n === 1 ? 'articolo' : 'articoli'} da portare in più` : 'I più prelevati e cosa portare in più'; })())}
     ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
   </div>
@@ -1460,7 +1494,7 @@ const azioni = {
   'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
   'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();
     if (!eNotte()) { document.documentElement.setAttribute('data-colori', el.dataset.v); avviso('Anteprima della notte: adesso è giorno, torna rosa fra 3 secondi.'); clearTimeout(applicaColori.t); applicaColori.t = setTimeout(applicaColori, 3000); } },
-  'pagina-diretta': (el) => { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; disegna(); window.scrollTo(0, 0); },
+  'pagina-diretta': (el) => { if (el.dataset.pagina === 'prelievi') { ui.scheda = 'prelievi'; ui.pagina = ''; } else { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; } disegna(); window.scrollTo(0, 0); },
   'zip-vecchi': (el) => { ui.zipVecchi = !!el.dataset.v; disegna(); },
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
   'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
@@ -1490,6 +1524,8 @@ const azioni = {
   'ev': (el) => { const a = (ui.storicoAperti ||= new Set()); if (a.has(el.dataset.k)) a.delete(el.dataset.k); else a.add(el.dataset.k); disegna(); },
   'altri-storico': () => { ui.quantiStorico += 300; disegna(); },
   // + e − vanno avanti di una spira (o di un blister): si riempiono spire intere
+  'consiglio': (el) => cambia(() => g.applicaConsiglio(el.dataset.codice), (n) => (n ? `Aggiunti ${n} pezzi consigliati per ${el.dataset.codice}.` : `${el.dataset.codice} messo a 0.`)),
+  'consigli-tutti': () => cambia(() => g.consigli().filter((c) => c.tipo === 'piu').reduce((t, c) => t + g.applicaConsiglio(c.codice), 0), (n) => `Aggiunti ${n} pezzi consigliati.`),
   'meno': (el) => passoRif(el.dataset.codice, -1),
   'piu': (el) => passoRif(el.dataset.codice, 1),
   'stampa-fatto': async (el) => {

@@ -84,7 +84,7 @@ h2 { margin: 4px 0 0; font-size: 13px; font-weight: 700; color: var(--tenue); te
 .campo input, .campo select { height: 46px; border-radius: 12px; border: 1px solid var(--bordo); background: var(--fondo); padding: 0 12px; font-size: 16px; width: 100%; }
 .griglia2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
-#schede { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 6px 4px calc(var(--basso) + 6px); background: color-mix(in srgb, var(--fondo) 94%, transparent); border-top: 1px solid var(--linea); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 5; }
+#schede { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 6px 4px calc(var(--basso) + 6px); background: color-mix(in srgb, var(--fondo) 94%, transparent); border-top: 1px solid var(--linea); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 5; }
 #schede button { display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 48px; justify-content: center; background: none; border: 0; color: var(--tenue); font-size: 11px; font-weight: 600; }
 #schede button svg { width: 24px; height: 24px; }
 #schede button[aria-current="page"] { color: var(--rosa); font-weight: 700; }
@@ -509,3 +509,23 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: .05em; margin-top: 10px;
   .voce { min-height: 54px; padding: 11px 16px; }
   .articolo { gap: 6px; }
 }
+
+/* consigli di rifornimento */
+.cons-riga { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0 2px; }
+.cons { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.cons.su { background: color-mix(in srgb, var(--arancio) 22%, transparent); color: var(--arancio); }
+.cons.fermo { background: color-mix(in srgb, var(--tenue) 18%, transparent); color: var(--tenue); }
+.cons-btn { height: 24px; padding: 0 10px; border-radius: 12px; border: 1px solid var(--arancio); background: transparent; color: var(--arancio); font-size: 12px; font-weight: 700; }
+.carta.consigli { border-color: color-mix(in srgb, var(--arancio) 45%, transparent); }
+.cons-lista { display: flex; flex-direction: column; }
+.cons-r { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 8px 0; background: none; border: 0; border-top: 1px solid var(--linea); text-align: left; }
+.cons-piu { font-weight: 800; font-size: 16px; color: var(--testo); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.consigli-oggi { border-color: color-mix(in srgb, var(--arancio) 45%, transparent); }
+@media (max-width: 999px) { #schede button { font-size: 10px; } }
+
+/* pagina Tendenze */
+.tend { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+.tend-corpo { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; background: none; border: 0; text-align: left; padding: 0; }
+.tend-dx { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.cons.giu { background: color-mix(in srgb, var(--verde) 16%, transparent); color: var(--verde); }
+.carta .link { background: none; border: 0; padding: 0; color: var(--rosa); font-weight: 600; font-size: inherit; }

@@ -792,26 +792,65 @@ export class Gestionale {
   }
 
   /** Consigli del programma: articoli in aumento (porta giù di più) e articoli fermi (non riportarne). */
-  consiglio(codice, oggi = oggiIso()) {
+  consiglio(codice, oggi = oggiIso()) { return this.consiglioInfo(codice, oggi)?.testo || ''; }
+
+  /** Andamento di un articolo: ultimi 10 giorni contro i 10 prima.
+   *  Media al giorno degli ultimi 10 giorni; se si usa di più, il consiglio è portare giù 3 giorni in più
+   *  (media × 3, a spire o blister intere). Sotto i 2 pezzi non consiglio niente: uno in più non serve. */
+  andamento(codice, oggi = oggiIso()) {
     const p = this.s.prodotti[codice];
-    if (!p) return '';
-    if (p.scorta_minima != null) {
-      const extra = Math.floor((p.scorta_minima + 1) / 2);
-      const u7 = this._consumoTra(codice, piuGiorni(oggi, -6), oggi), m4 = this._consumoTra(codice, piuGiorni(oggi, -34), piuGiorni(oggi, -7));
-      const u14 = this._consumoTra(codice, piuGiorni(oggi, -13), oggi), p14 = this._consumoTra(codice, piuGiorni(oggi, -27), piuGiorni(oggi, -14));
-      const solito = m4 / 4;
-      if (extra > 0 && solito > 0 && u7 >= solito * 1.5) return `Questa settimana il movimento è +${Math.round((u7 / solito - 1) * 100)}% rispetto al solito (${Math.round(solito)} pezzi a settimana): al prossimo carico porta giù ${extra} ${extra === 1 ? 'pezzo' : 'pezzi'} in più.`;
-      if (extra > 0 && p14 > 0 && u14 >= p14 * 1.5) return `Richiesta +${Math.round((u14 / p14 - 1) * 100)}% negli ultimi 14 giorni: porta giù ${extra} ${extra === 1 ? 'pezzo' : 'pezzi'} in più.`;
+    if (!p) return null;
+    const passo = p.in_blister && p.pezzi_blister ? p.pezzi_blister : (p.pezzi_spira || 1);
+    const u10 = this._consumoTra(codice, piuGiorni(oggi, -9), oggi), p10 = this._consumoTra(codice, piuGiorni(oggi, -19), piuGiorni(oggi, -10));
+    const media = u10 / 10, tre = Math.ceil(media * 3 - 1e-9);
+    const sale = u10 > p10 && (p10 === 0 || u10 >= p10 * 1.1), perc = p10 > 0 ? Math.round((u10 / p10 - 1) * 100) : (u10 > 0 ? 100 : 0);
+    const extra = sale && tre >= 2 ? Math.ceil(tre / passo) * passo : 0;
+    return { codice, u10, p10, media, perc, sale, extra };
+  }
+
+  /** Come consiglio(), ma con i numeri: { tipo: 'piu' | 'fermo', extra, perc, testo }. */
+  consiglioInfo(codice, oggi = oggiIso()) {
+    const p = this.s.prodotti[codice];
+    if (!p) return null;
+    const a = this.andamento(codice, oggi);
+    if (a && a.extra) {
+      const m = Math.round(a.media * 10) / 10;
+      return { tipo: 'piu', extra: a.extra, perc: a.perc, testo: `Ultimi 10 giorni ${a.u10} pezzi contro ${a.p10} dei 10 prima (${m.toString().replace('.', ',')} al giorno): porta giù ${a.extra} pezzi in più, circa 3 giorni di scorta.` };
     }
     const disp = (p.quantita || 0) + (p.magazzino || 0);
     const giorniStoria = Object.keys(this.s.consumi).sort()[0];
     if (disp > 0 && giorniStoria && (new Date(oggi) - new Date(giorniStoria)) / 86400000 >= 180) {
       const c180 = this._consumoTra(codice, piuGiorni(oggi, -180), oggi);
-      if (c180 === 0) return `Fermo da 6 mesi: ci sono ${disp} pezzi, non riportarne ora.`;
+      if (c180 === 0) return { tipo: 'fermo', extra: 0, testo: `Fermo da 6 mesi: ci sono ${disp} pezzi, non riportarne ora.` };
       const alMese = c180 / 6;
-      if (alMese <= 0.2 && disp / alMese >= 6) return `Si muove poco (${c180} pezzi in 6 mesi): ci sono ${disp} pezzi, bastano per circa ${Math.floor(disp / alMese)} mesi. Non riportarne ora.`;
+      if (alMese <= 0.2 && disp / alMese >= 6) return { tipo: 'fermo', extra: 0, testo: `Si muove poco (${c180} pezzi in 6 mesi): ci sono ${disp} pezzi, bastano per circa ${Math.floor(disp / alMese)} mesi. Non riportarne ora.` };
     }
-    return '';
+    return null;
+  }
+
+  /** Più prelevati degli ultimi 10 giorni, con andamento e consiglio. */
+  tendenze(oggi = oggiIso()) {
+    return Object.keys(this.s.prodotti).map((k) => this.andamento(k, oggi)).filter((a) => a && (a.u10 > 0 || a.p10 > 0))
+      .sort((a, b) => b.u10 - a.u10 || b.perc - a.perc);
+  }
+
+  /** Tutti gli articoli con un consiglio, i più in aumento per primi. */
+  consigli(oggi = oggiIso()) {
+    return Object.keys(this.s.prodotti).map((codice) => ({ codice, ...(this.consiglioInfo(codice, oggi) || {}) })).filter((c) => c.tipo)
+      .sort((a, b) => (a.tipo === b.tipo ? (b.perc || 0) - (a.perc || 0) : a.tipo === 'piu' ? -1 : 1));
+  }
+
+  /** Aggiunge alla lista i pezzi consigliati (una volta sola per articolo in questo giro). */
+  applicaConsiglio(codice) {
+    const c = this.consiglioInfo(codice), p = this.s.prodotti[codice];
+    if (!c || !p) return 0;
+    let b = this.s.bozza.find((x) => x.codice === codice);
+    if (c.tipo === 'fermo') { if (b) b.quantita = 0; this._tocca(); return 0; }
+    if (b && b.consiglio_aggiunto) return 0;
+    if (!b) { b = { codice, descrizione: p.descrizione, proposta: 0, quantita: 0 }; this.s.bozza.push(b); }
+    b.quantita += c.extra; b.consiglio_aggiunto = c.extra;
+    this._tocca();
+    return c.extra;
   }
 
   riabilitaDescrizione(k) { this.s.ignorate = this.s.ignorate.filter((x) => x !== k); this._tocca(); }
