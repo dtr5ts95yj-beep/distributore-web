@@ -559,3 +559,12 @@ html:not([data-colori]) .anello span { color: #5b21b6; }
 html:not([data-colori]) #avviso.errore { background: #d70015; color: #fff; }
 html:not([data-colori]) .cella.verde { background: #d8f3e0; } html:not([data-colori]) .cella.verde .art { color: #1e6b34; } html:not([data-colori]) .cella.manca { border-color: #d70015; } html:not([data-colori]) .cella.manca .art { color: #d70015; }
 html:not([data-colori]) .legenda i.verde { background: #d8f3e0; border: 1px solid #1e6b34; } html:not([data-colori]) .legenda i.rossa { background: #fde8ec; border: 1px solid #b0001c; } html:not([data-colori]) .legenda i.manca { border-color: #d70015; }
+
+/* grafici delle Tendenze */
+.tend-graf { width: 100%; height: 120px; display: block; }
+.tend-graf rect.prima { fill: color-mix(in srgb, var(--tenue) 45%, transparent); }
+.tend-graf rect.ora { fill: var(--viola); }
+.tend-spark { display: block; margin-top: 6px; max-width: 220px; }
+.tend-spark .tend-graf { height: 30px; }
+.tend-asse { display: flex; justify-content: space-between; font-size: 11px; color: var(--tenue); margin-top: -4px; }
+.legenda i.prima { background: color-mix(in srgb, var(--tenue) 45%, transparent); } .legenda i.ora { background: var(--viola); }

@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.5';
+const VERSIONE = '7.6';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -725,14 +725,27 @@ function calendario() {
 function tendenze() {
   const t = g.tendenze(), su = t.filter((a) => a.extra), inLista = (k) => g.s.bozza.find((x) => x.codice === k);
   const virg = (n) => (Math.round(n * 10) / 10).toString().replace('.', ',');
+  // grafico a barre degli ultimi 20 giorni: i 10 prima in grigio, gli ultimi 10 in viola
+  const grafico = (serie, alto = 120) => {
+    const max = Math.max(1, ...serie.map((x) => x.q)), w = 100 / serie.length;
+    return `<svg class="tend-graf" viewBox="0 0 100 ${alto}" preserveAspectRatio="none" aria-hidden="true">${serie.map((x, i) => { const h = Math.max(x.q ? 2 : 0, Math.round(x.q / max * (alto - 4))); return `<rect x="${(i * w + w * 0.15).toFixed(2)}" y="${alto - h}" width="${(w * 0.7).toFixed(2)}" height="${h}" rx="1" class="${i < serie.length / 2 ? 'prima' : 'ora'}"/>`; }).join('')}</svg>`;
+  };
+  const spark = (codice) => grafico(g.serieGiorni(codice, 20), 36);
+  const tot = g.serieGiorni(null, 20), sPrima = tot.slice(0, 10).reduce((t, x) => t + x.q, 0), sOra = tot.slice(10).reduce((t, x) => t + x.q, 0);
+  const gg = (d) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`;
   const freccia = (a) => (a.sale ? `<span class="cons su">↑ +${a.perc}%</span>` : a.u10 < a.p10 ? `<span class="cons giu">↓ ${a.perc}%</span>` : '<span class="cons fermo">=</span>');
   const riga = (a) => { const p = g.prodotto(a.codice) || {}, fatto = inLista(a.codice)?.consiglio_aggiunto;
     return `<div class="tend">
       <button type="button" class="tend-corpo" data-a="articolo" data-codice="${esc(a.codice)}"><b>${esc(a.codice)}</b><small class="tenue taglia">${esc(p.descrizione || '')}</small>
+        <span class="tend-spark">${spark(a.codice)}</span>
         <small class="tenue">${num(a.u10)} pezzi in 10 giorni (prima ${num(a.p10)}) · ${a.sale ? `+${virg(a.aumento)} al giorno` : `${virg(a.media)} al giorno`}</small></button>
       <div class="tend-dx">${freccia(a)}${a.extra ? (fatto ? `<small class="tenue">+${fatto} aggiunti</small>` : `<button type="button" class="cons-btn" data-a="consiglio" data-codice="${esc(a.codice)}">+${a.extra}</button>`) : '<small class="tenue">va bene così</small>'}</div></div>`; };
   return `
   <h1>Tendenze</h1>
+  <div class="carta tend-tot"><div class="riga-titolo"><b>Tutti gli articoli, ultimi 20 giorni</b><span class="${sOra > sPrima ? 'cons su' : sOra < sPrima ? 'cons giu' : 'cons fermo'}">${sPrima ? `${sOra >= sPrima ? '+' : ''}${Math.round((sOra / sPrima - 1) * 100)}%` : '—'}</span></div>
+    ${grafico(tot)}
+    <div class="tend-asse"><span>${gg(tot[0].d)}</span><span>${gg(tot[10].d)}</span><span>oggi</span></div>
+    <div class="legenda"><span><i class="prima"></i>10 giorni prima: <b style="color:var(--testo)">${num(sPrima)}</b> pezzi</span><span><i class="ora"></i>ultimi 10 giorni: <b style="color:var(--testo)">${num(sOra)}</b> pezzi</span></div></div>
   <div class="tenue">I più prelevati degli ultimi 10 giorni, confrontati con i 10 giorni prima. Se un articolo si usa almeno il 25% in più ti consiglio di portare giù <b style="color:var(--testo)">3 giorni dell'aumento</b> (i pezzi in più al giorno × 3, a spire intere): il consumo normale lo riporti già col rifornimento. Sotto i 2 pezzi non consiglio niente.</div>
   ${su.length ? `<div class="carta consigli"><div class="riga-titolo"><b>Da portare in più: ${su.length} ${su.length === 1 ? 'articolo' : 'articoli'}</b>${su.some((a) => !inLista(a.codice)?.consiglio_aggiunto) ? '<button type="button" class="btn piccolo" data-a="consigli-tutti">Aggiungi tutti</button>' : ''}</div>
     <small class="tenue">Li aggiungo al rifornimento da preparare: quello che non entra nel distributore va sullo scaffale.</small></div>

@@ -829,6 +829,16 @@ export class Gestionale {
     return null;
   }
 
+  /** Pezzi al giorno degli ultimi n giorni (dal più vecchio a oggi); senza codice = tutti gli articoli. */
+  serieGiorni(codice = null, n = 20, oggi = oggiIso()) {
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = piuGiorni(oggi, -i), c = this.s.consumi[d] || {};
+      out.push({ d, q: codice ? (c[codice] || 0) : Object.values(c).reduce((t, x) => t + (x || 0), 0) });
+    }
+    return out;
+  }
+
   /** Più prelevati degli ultimi 10 giorni, con andamento e consiglio. */
   tendenze(oggi = oggiIso()) {
     return Object.keys(this.s.prodotti).map((k) => this.andamento(k, oggi)).filter((a) => a && (a.u10 > 0 || a.p10 > 0))
