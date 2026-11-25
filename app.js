@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.2';
+const VERSIONE = '7.3';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -334,7 +334,7 @@ function disegna() {
   const pagine = { tendenze, barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
   const html = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
     ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
-    : ({ oggi, articoli, prelievi, rifornimento, calendario, altro })[ui.scheda]();
+    : ({ oggi, articoli, tendenze, rifornimento, calendario, altro })[ui.scheda]();
   // mentre scrivi in una casella la casella resta quella (non si ricrea): la tastiera non si chiude e non torna alle lettere
   const vivo = document.activeElement, tieni = vivo && vivo.id && vivo.matches('input') && [...s.children].find((c) => c.contains(vivo));
   if (tieni) {
@@ -888,7 +888,6 @@ function altro() {
   <h2>Ogni giorno</h2>
   <div class="lista">
     ${voce('controllo', 'Controllo sul posto', attesa ? `${attesa} in attesa dello ZIP` : 'Segna i pezzi mancanti al distributore')}
-    ${voce('tendenze', 'Tendenze', (() => { const n = g.consigli().filter((c) => c.tipo === 'piu').length; return n ? `${n} ${n === 1 ? 'articolo' : 'articoli'} da portare in più` : 'I più prelevati e cosa portare in più'; })())}
     ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
   </div>
@@ -1494,7 +1493,7 @@ const azioni = {
   'attiva-numerino': async () => { try { await Notification.requestPermission(); } catch { /* niente */ } aggiornaNumerino(); disegna(); },
   'pref-colori': (el) => { try { localStorage.setItem('pref_colori', el.dataset.v); } catch { /* niente */ } applicaColori(); disegna();
     if (!eNotte()) { document.documentElement.setAttribute('data-colori', el.dataset.v); avviso('Anteprima della notte: adesso è giorno, torna rosa fra 3 secondi.'); clearTimeout(applicaColori.t); applicaColori.t = setTimeout(applicaColori, 3000); } },
-  'pagina-diretta': (el) => { if (el.dataset.pagina === 'prelievi') { ui.scheda = 'prelievi'; ui.pagina = ''; } else { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; } disegna(); window.scrollTo(0, 0); },
+  'pagina-diretta': (el) => { if (el.dataset.pagina === 'tendenze') { ui.scheda = 'tendenze'; ui.pagina = ''; } else if (el.dataset.pagina === 'prelievi') { ui.scheda = 'rifornimento'; ui.rifPasso = ''; ui.pagina = ''; } else { ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; } disegna(); window.scrollTo(0, 0); },
   'zip-vecchi': (el) => { ui.zipVecchi = !!el.dataset.v; disegna(); },
   'riepilogo-ok': (el) => { try { localStorage.setItem('riepilogo_visto', el.dataset.settimana); } catch { /* niente */ } chiudiFoglio(); },
   'esito-visto': (el) => cambia(() => { g.s.esiti_controlli.forEach((x) => { if (x.data === el.dataset.data) x.visto = true; }); g.s.aggiornato = new Date().toISOString(); }),
