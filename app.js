@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.6';
+const VERSIONE = '7.8';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -312,7 +312,8 @@ function aggiornaNumerino() {
 { const v = document.getElementById('sp-ver'); if (v) v.textContent = `versione ${VERSIONE}`; }
 
 function chiudiSplash() {
-  const sp = $('#splash'); if (!sp) return;
+  const sp = $('#splash'); if (!sp || sp.dataset.chiudo) return;
+  sp.dataset.chiudo = '1';
   const resta = Math.max(0, 1900 - performance.now());
   setTimeout(() => { sp.classList.add('via'); document.body.classList.add('intro'); setTimeout(() => { sp.remove(); document.body.classList.remove('intro'); }, 1600); }, resta);
 }
@@ -417,11 +418,24 @@ function strisciaZip() {
 function esitiNonVisti() {
   const e = g.s.esiti_controlli.filter((x) => !x.visto);
   if (!e.length) return '';
-  return e.map((x, i) => `<div class="carta ${x.ammanchi.length ? 'avviso-carta' : ''}">
-    <b>Controllo sul posto del ${isoIta(x.data)}: confrontato con lo ZIP</b>
-    <small class="tenue">${x.coperti} ${x.coperti === 1 ? 'articolo spiegato' : 'articoli spiegati'} dai prelievi${x.ammanchi.length ? `, ${x.ammanchi.length} con ammanco:` : '. Nessun ammanco.'}</small>
-    ${x.ammanchi.map((a) => `<div class="riga-titolo" style="align-items:center"><span><b>${esc(a.codice)}</b> <small class="tenue">${esc(a.descrizione)}</small></span><b style="color:var(--arancio)">−${a.pezzi}</b></div><small class="tenue">mancavano ${a.mancanti}, i prelievi ne spiegano ${a.prelevati}: ${a.pezzi} ${a.pezzi === 1 ? 'pezzo è un ammanco' : 'pezzi sono un ammanco'}, già nel rifornimento</small>`).join('')}
-    <button type="button" class="btn vuoto piccolo" data-a="esito-visto" data-data="${x.data}">Ok, visto</button></div>`).join('');
+  return e.map((x) => { const rr = g.s.controlli.filter((r) => r.stato === 'chiuso' && r.data === x.data);
+    return `<div class="carta ${x.ammanchi.length ? 'avviso-carta' : ''}">
+    <b>Controllo sul posto del ${isoIta(x.data)}: è arrivato lo ZIP</b>
+    <small class="tenue">${x.ammanchi.length ? `${x.ammanchi.length} ${x.ammanchi.length === 1 ? 'articolo con ammanco' : 'articoli con ammanco'}, gli altri spiegati dai prelievi.` : 'Tutto spiegato dai prelievi: nessun ammanco.'}</small>
+    ${rr.length ? tabellaControllo(rr, true) : ''}
+    <button type="button" class="btn vuoto piccolo" data-a="esito-visto" data-data="${x.data}">Ok, visto</button></div>`; }).join('');
+}
+
+// Tabella del controllo sul posto: cosa hai segnato, cosa ha trovato lo ZIP, cosa resta
+function tabellaControllo(righe, chiuso) {
+  const intest = chiuso ? '<span>Segnati</span><span>Nello ZIP</span><span>Ammanco</span>' : '<span>Segnati</span><span>Già nello ZIP</span><span></span>';
+  const corpo = righe.map((r) => { const nz = chiuso ? (r.prelevati ?? Math.max(0, r.mancanti - (r.ammanco || 0))) : (r.assorbiti || 0);
+    return `<div class="ct-riga"><span class="ct-art"><b>${esc(r.codice)}</b><small class="tenue taglia">${esc(g.prodotto(r.codice)?.descrizione || '')}</small></span>
+      <b>${r.mancanti}</b><b>${nz}</b>${chiuso ? `<b style="color:${r.ammanco ? 'var(--arancio)' : 'var(--verde)'}">${r.ammanco ? '−' + r.ammanco : '0'}</b>` : '<span></span>'}</div>`; }).join('');
+  const piede = chiuso
+    ? 'Nello ZIP = prelievi registrati, quindi spiegati. Ammanco = mancavano senza prelievo: li ho tolti dal distributore. In tutti e due i casi i pezzi restano <b>una volta sola</b> nel rifornimento da preparare.'
+    : 'Quando arriva lo ZIP, i pezzi che trova come prelievo sono spiegati; quelli che non trova diventano ammanco. Nel rifornimento restano comunque una volta sola.';
+  return `<div class="ct-tab"><div class="ct-riga ct-testa"><span>Articolo</span>${intest}</div>${corpo}</div><small class="tenue">${piede}</small>`;
 }
 
 function testoCtrl() {
@@ -450,10 +464,14 @@ function controllo() {
       <button type="button" class="pm piu" data-a="ctrl-piu" data-codice="${esc(k)}" aria-label="Più ${esc(k)}">+</button></div>`; }).join('')}</div>
   <div class="ctrl-barra"><button type="button" class="btn" data-a="ctrl-salva" ${righe.length ? '' : 'disabled'}>${testoCtrl()}</button></div>
   </div>
-  ${attesa.length ? `<h2>In attesa dello ZIP</h2>${attesa.map((a) => `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(a.data + 'T12:00').getDay()]} ${isoIta(a.data)}</b><span class="tenue">${a.pezzi} pezzi</span></div>
-    ${a.righe.map((r) => `<small><b>${esc(r.codice)}</b> segnati ${r.mancanti}${r.assorbiti ? ` · ${r.assorbiti} già trovati nello ZIP` : ''}</small>`).join('')}
+  ${attesa.length ? `<h2>In attesa dello ZIP</h2>${attesa.map((a) => `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(a.data + 'T12:00').getDay()]} ${isoIta(a.data)}</b><span class="cons fermo">aspetto lo ZIP</span></div>
+    <small class="tenue">Aspetto lo ZIP del ${isoIta(a.data)} (di solito arriva la mattina dopo). Intanto questi pezzi sono già nel rifornimento da preparare.</small>
+    ${tabellaControllo(a.righe, false)}
     <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="ctrl-modifica" data-data="${a.data}">Modifica</button><button type="button" class="btn pericolo piccolo" data-a="ctrl-elimina" data-data="${a.data}">Elimina</button></div></div>`).join('')}` : ''}
-  ${g.s.esiti_controlli.length ? `<h2>Controlli chiusi</h2><div class="lista">${g.s.esiti_controlli.slice().reverse().map((x) => `<div class="voce"><span class="corpo"><b>${isoIta(x.data)}</b><small>${x.coperti} spiegati${x.ammanchi.length ? ` · ammanchi: ${x.ammanchi.map((a) => `${esc(a.codice)} −${a.pezzi}`).join(', ')}` : ' · nessun ammanco'}</small></span></div>`).join('')}</div>` : ''}`;
+  ${(() => { const giorni = [...new Set(g.s.controlli.filter((r) => r.stato === 'chiuso').map((r) => r.data))].sort().reverse().slice(0, 5);
+    return giorni.length ? `<h2>Controlli chiusi</h2>${giorni.map((d) => { const rr = g.s.controlli.filter((r) => r.stato === 'chiuso' && r.data === d), amm = rr.reduce((t, r) => t + (r.ammanco || 0), 0);
+      return `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(d + 'T12:00').getDay()]} ${isoIta(d)}</b>${amm ? `<span class="cons su">ammanco ${amm}</span>` : '<span class="cons giu">tutto spiegato</span>'}</div>
+        <small class="tenue">Confrontato con lo ZIP del ${isoIta(d)}.</small>${tabellaControllo(rr, true)}</div>`; }).join('')}` : ''; })()}`;
 }
 
 function riepilogo() {
@@ -1330,11 +1348,15 @@ async function filePdfRifornimento(etichetta = 'stampato') {
 
 // aggiorna solo la riga toccata, così la lista non salta
 function ctrlCambia(k, d) {
+  const prima = document.querySelector(`.ctrl-riga[data-codice="${CSS.escape(k)}"]`)?.getBoundingClientRect().top;
   const r = ui.controllo.righe, q = Math.max(0, (r[k] || 0) + d);
   if (q) r[k] = q; else delete r[k];
   const riga = document.querySelector(`.ctrl-riga[data-codice="${CSS.escape(k)}"]`);
   if (riga) { riga.querySelector('.ctrl-q').textContent = q; riga.classList.toggle('segnato', q > 0); riga.querySelector('[data-a="ctrl-meno"]').disabled = !q; }
   const b = document.querySelector('[data-a="ctrl-salva"]'); if (b) { b.textContent = testoCtrl(); b.disabled = !Object.keys(r).length; }
+  // la riga che stai toccando resta ferma sotto il dito
+  const dopo = riga?.getBoundingClientRect().top;
+  if (prima != null && dopo != null && Math.abs(dopo - prima) > 1) window.scrollBy(0, dopo - prima);
 }
 
 // Controllo sul posto in modalità barcode: beep → articolo e quantità → Aggiungi → si continua a leggere
@@ -1673,6 +1695,13 @@ document.addEventListener('submit', (e) => {
 
 // ------------------------------------------------------------------ avvio
 async function avvia() {
+  // qualunque cosa succeda, l'animazione d'apertura si chiude: mai più app bloccata sul distributore
+  const paracadute = setTimeout(() => { chiudiSplash(); if (!g) disegna(); }, 12000);
+  try { await avviaDavvero(); }
+  catch (e) { console.error(e); avviso('Errore all\'apertura: ' + (e.message || e) + '. Se continua, mandami uno screenshot.', true); try { disegna(); } catch { /* niente */ } }
+  finally { clearTimeout(paracadute); chiudiSplash(); }
+}
+async function avviaDavvero() {
   const ritorno = drive.ritorno();
   try { navigator.storage?.persist?.(); } catch { /* niente */ }
   const salvato = await archivio.leggi('stato').catch(() => null);
@@ -1687,7 +1716,7 @@ async function avvia() {
   disegna();
   if (!g) { chiudiSplash(); return; }
   if (ritorno.startsWith('errore:') && !/interaction_required|login_required|consent_required/.test(ritorno)) avviso('Google: accesso non riuscito (' + ritorno.slice(7) + ').', true);
-  if (ritorno.startsWith('errore:')) { ui.drive = { stato: 'accedi', msg: 'Tocca per aggiornare da Google Drive', nuovi: [] }; disegna(); return; }
+  if (ritorno.startsWith('errore:')) { ui.drive = { stato: 'accedi', msg: 'Tocca per aggiornare da Google Drive', nuovi: [] }; disegna(); chiudiSplash(); return; }
   try {
     const el = (await archivio.leggi('backup_elenco')) || [];
     if (!el.length || el[el.length - 1].ora.slice(0, 10) !== new Date().toISOString().slice(0, 10)) await backupLocale('copia del giorno');

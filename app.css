@@ -568,3 +568,22 @@ html:not([data-colori]) .legenda i.verde { background: #d8f3e0; border: 1px soli
 .tend-spark .tend-graf { height: 30px; }
 .tend-asse { display: flex; justify-content: space-between; font-size: 11px; color: var(--tenue); margin-top: -4px; }
 .legenda i.prima { background: color-mix(in srgb, var(--tenue) 45%, transparent); } .legenda i.ora { background: var(--viola); }
+
+/* niente zoom con i tocchi veloci (+ + +) su iPhone */
+html { touch-action: manipulation; }
+button, .pm, .chip { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+input, textarea { font-size: max(16px, 1em); }   /* sotto 16px l'iPhone ingrandisce la pagina quando scrivi */
+.ctrl-barra .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* tabella del controllo sul posto */
+.ct-tab { display: flex; flex-direction: column; margin: 4px 0; }
+.ct-riga { display: grid; grid-template-columns: minmax(0, 1fr) 62px 62px 62px; align-items: center; gap: 6px; padding: 7px 0; border-top: 1px solid var(--linea); }
+.ct-riga > b, .ct-riga > span:not(.ct-art) { text-align: center; font-variant-numeric: tabular-nums; }
+.ct-testa { border-top: 0; font-size: 11px; font-weight: 600; color: var(--tenue); text-transform: uppercase; letter-spacing: .03em; }
+.ct-art { display: flex; flex-direction: column; min-width: 0; }
+html:not([data-colori]) .avviso-carta { background: #fff6e8; border-color: #f2c48a; }
+html:not([data-colori]) .barra { background: #ebe7f5; }
+html:not([data-colori]) .tile.manca { background: #ffe5e9; } html:not([data-colori]) .tile.controlla { background: #fff1dc; } html:not([data-colori]) .tile.ignorato, html:not([data-colori]) .tile.prima { background: #f2f2f7; }
+html:not([data-colori]) .tile.manca .dist-box .si { background: #ffd1d9; } html:not([data-colori]) .tile.controlla .dist-box .si { background: #ffe2b8; }
+html:not([data-colori]) .stato-z.ok { background: #dcf5e3; } html:not([data-colori]) .stato-z.errore { background: #ffe5e9; } html:not([data-colori]) .stato-z.controlla { background: #fff1dc; }
+html:not([data-colori]) .sg-c.verde { background: #dcf5e3; } html:not([data-colori]) .sg-c.rossa { background: #ffe5e9; }
+.ct-testa > span:first-child { text-align: left !important; }
