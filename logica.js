@@ -807,12 +807,40 @@ export class Gestionale {
     return { codice, u10, p10, media: u10 / 10, perc, sale, scende, extra: 0 };
   }
 
+  /** Giorni tipici tra un rifornimento e l'altro (media degli ultimi), tra 7 e 10. */
+  giorniTraRifornimenti() {
+    const d = [...new Set(this.eventiRifornimento().map((r) => String(r.data_ora).slice(0, 10)))].sort().slice(-5);
+    if (d.length < 2) return 7;
+    const gg = (d[d.length - 1] && (Date.parse(d[d.length - 1]) - Date.parse(d[0])) / 86400000 / (d.length - 1)) || 7;
+    return Math.min(10, Math.max(7, Math.round(gg)));
+  }
+
+  /** Rischio di restare senza fino al prossimo rifornimento: al ritmo degli ultimi 10 giorni, quanto serve
+   *  per i prossimi giorni del giro, contro quello che hai (distributore pieno + magazzino).
+   *  Se non basta, extra = quanto manca, a spire (o blister) intere. */
+  rischio(codice, oggi = oggiIso()) {
+    const p = this.s.prodotti[codice];
+    if (!p || p.carico_completo == null) return null;
+    const u10 = this._consumoTra(codice, piuGiorni(oggi, -9), oggi);
+    const giorni = this.giorniTraRifornimenti(), alGiorno = u10 / 10;
+    const serve = Math.ceil(alGiorno * giorni - 1e-9), hai = p.carico_completo + (p.magazzino || 0);
+    const manca = serve - hai;
+    if (manca <= 0 || alGiorno <= 0) return { codice, alGiorno, giorni, serve, hai, extra: 0, rischio: false };
+    const passo = p.in_blister && p.pezzi_blister ? p.pezzi_blister : (p.pezzi_spira || 1);
+    return { codice, alGiorno, giorni, serve, hai, extra: Math.ceil(manca / passo) * passo, rischio: true };
+  }
+
+  /** Articoli a rischio di restare senza, i più scoperti per primi. */
+  aRischio(oggi = oggiIso()) {
+    return Object.keys(this.s.prodotti).map((k) => this.rischio(k, oggi)).filter((r) => r && r.rischio).sort((a, b) => (b.serve - b.hai) - (a.serve - a.hai));
+  }
+
   /** Come consiglio(), ma con i numeri: { tipo: 'piu' | 'fermo', extra, perc, testo }. */
   consiglioInfo(codice, oggi = oggiIso()) {
     const p = this.s.prodotti[codice];
     if (!p) return null;
-    const a = this.andamento(codice, oggi);
-    if (a && a.sale) return { tipo: 'piu', extra: 0, perc: a.perc, testo: `Gira di più: ${a.u10} pezzi negli ultimi 10 giorni contro ${a.p10} dei 10 prima (+${a.perc}%). Valuta se portarne giù qualcuno in più.` };
+    const r = this.rischio(codice, oggi);
+    if (r && r.rischio) return { tipo: 'piu', extra: r.extra, perc: 0, testo: `Rischi di restare senza: al ritmo attuale (${(Math.round(r.alGiorno * 10) / 10).toString().replace('.', ',')} al giorno) in ${r.giorni} giorni ne servono ${r.serve}, ma pieno più magazzino fanno ${r.hai}. Porta giù almeno ${r.extra} pezzi in più.` };
     const disp = (p.quantita || 0) + (p.magazzino || 0);
     const giorniStoria = Object.keys(this.s.consumi).sort()[0];
     if (disp > 0 && giorniStoria && (new Date(oggi) - new Date(giorniStoria)) / 86400000 >= 180) {

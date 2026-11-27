@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '8.2';
+const VERSIONE = '8.3';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -331,7 +331,7 @@ function disegna() {
   document.querySelectorAll('#schede button').forEach((b) => b.setAttribute('aria-current', (b.id === 'tasto-app' ? (ui.app || ui.scheda === 'altro') : (!ui.app && b.dataset.scheda === ui.scheda)) ? 'page' : 'false'));
   // pallino rosso sul pulsante App quando dentro c'è qualcosa da guardare (articoli che girano di più)
   const ta = document.getElementById('tasto-app');
-  if (ta && g) { const n = g.tendenze().filter((x) => x.sale).length; let d = ta.querySelector('.app-dot'); if (n && !d) { d = document.createElement('i'); d.className = 'app-dot'; ta.appendChild(d); } if (d) { d.hidden = !n; d.textContent = n; } }
+  if (ta && g) { const n = g.aRischio().length; let d = ta.querySelector('.app-dot'); if (n && !d) { d = document.createElement('i'); d.className = 'app-dot'; ta.appendChild(d); } if (d) { d.hidden = !n; d.textContent = n; } }
   let ap = document.getElementById('app-griglia');
   if (ui.app && g) { if (!ap) { ap = document.createElement('div'); ap.id = 'app-griglia'; document.body.appendChild(ap); } ap.innerHTML = schermataApp(); ap.hidden = false; }
   else if (ap) ap.hidden = true;
@@ -633,7 +633,7 @@ function oggi() {
   ${sosp ? `<button type="button" class="drive attenzione" data-a="apri-drive"><span class="icona" style="background:#8a5a2a">!</span><span style="flex-grow:1;display:flex;flex-direction:column"><b>${sosp} ${sosp === 1 ? 'riga' : 'righe'} da abbinare</b><small class="tenue">Non entrano nel rifornimento finché non scegli il codice AS400</small></span>${ico.freccia}</button>` : ''}
   ${esitiNonVisti()}
   ${strisciaZip()}
-  ${(() => { const su = g.tendenze().filter((a) => a.sale).sort((a, b) => b.perc - a.perc); return su.length ? `<button type="button" class="drive consigli-oggi" data-a="pagina-diretta" data-pagina="tendenze"><span class="icona" style="background:#ff9f0a"><svg class="ico" viewBox="0 0 24 24" style="stroke:#fff">${L.riepilogo}</svg></span><span class="corpo" style="flex-grow:1;display:flex;flex-direction:column;min-width:0"><b>${su.length} ${su.length === 1 ? 'articolo gira' : 'articoli girano'} di più</b><small class="tenue taglia">${su.slice(0, 3).map((a) => `${esc(a.codice)} +${a.perc}%`).join(' · ')} · valuta se portarne di più</small></span>${ico.freccia}</button>` : ''; })()}
+  ${(() => { const su = g.aRischio(); return su.length ? `<button type="button" class="drive consigli-oggi" data-a="apri-app" data-pagina="tendenze"><span class="icona" style="background:#ff9f0a"><svg class="ico" viewBox="0 0 24 24" style="stroke:#fff">${L.trend}</svg></span><span class="corpo" style="flex-grow:1;display:flex;flex-direction:column;min-width:0"><b>${su.length} ${su.length === 1 ? 'articolo rischia' : 'articoli rischiano'} di restare senza</b><small class="tenue taglia">${su.slice(0, 3).map((r) => `${esc(r.codice)} +${r.extra}`).join(' · ')} · porta giù di più</small></span>${ico.freccia}</button>` : ''; })()}
   <div class="mini3">
     <button type="button" class="mini" data-a="rif-passo" data-v=""><span class="mi" style="background:#ff9f0a"><svg viewBox="0 0 24 24">${L.prelievi}</svg></span><small>Prelevati</small><b>${num(giro.totale)}</b><em>dal ${gg(giro.inizio)}</em></button>
     <button type="button" class="mini" data-a="vedi-riordino"><span class="mi" style="background:${riordino.length ? '#ff6b3d' : '#34c759'}"><svg viewBox="0 0 24 24">${L.carrello}</svg></span><small>Da riordinare</small><b style="color:${riordino.length ? 'var(--arancio)' : 'var(--verde)'}">${riordino.length}</b><em>${riordino.length ? (riordino.length === 1 ? 'articolo' : 'articoli') : 'tutto ok'}</em></button>
@@ -742,7 +742,7 @@ function preparaRifornimento() {
   const inLista = (k) => g.s.bozza.find((x) => x.codice === k);
   const etichetta = (b) => {
     const c = CONS[b.codice]; if (!c) return '';
-    if (c.tipo === 'piu') return `<span class="cons su">gira di più · +${c.perc}%</span>`;
+    if (c.tipo === 'piu') return `<span class="cons su">rischia di finire · porta +${c.extra}</span>`;
     return b.quantita ? '<span class="cons fermo">fermo da mesi</span>' : '';
   };
   return `
@@ -808,7 +808,7 @@ function magazzino() {
 
 // Schermata App: tutte le sezioni come icone, a tutto schermo
 function schermataApp() {
-  const attesa = g.controlliInAttesa().length, gira = g.tendenze().filter((a) => a.sale).length;
+  const attesa = g.controlliInAttesa().length, gira = g.aRischio().length;
   const icona = (k, nome, n = 0, scheda = false) => { const [col, svg] = ICONE[k] || ['#636366', '']; return `<button type="button" class="app-ic" ${scheda ? `data-scheda="${k}"` : `data-a="apri-app" data-pagina="${k}"`}><span class="app-q" style="background:${col}"><svg viewBox="0 0 24 24">${svg}</svg>${n ? `<i class="app-n">${n}</i>` : ''}</span><small>${nome}</small></button>`; };
   return `<div class="app-in">
     <div class="app-testa"><b>App</b><button type="button" class="app-x" data-a="app" aria-label="Chiudi"><svg class="ico" viewBox="0 0 24 24">${L.chiudi}</svg></button></div>
@@ -823,7 +823,7 @@ function schermataApp() {
 }
 
 function tendenze() {
-  const t = g.tendenze(), su = t.filter((a) => a.sale).sort((a, b) => b.perc - a.perc), giu = t.filter((a) => a.scende).sort((a, b) => a.perc - b.perc);
+  const rischio = g.aRischio(), t = g.tendenze(), su = t.filter((a) => a.sale).sort((a, b) => b.perc - a.perc), giu = t.filter((a) => a.scende).sort((a, b) => a.perc - b.perc);
   const tot = g.serieGiorni(null, 20), sPrima = tot.slice(0, 10).reduce((t, x) => t + x.q, 0), sOra = tot.slice(10).reduce((t, x) => t + x.q, 0);
   const max = Math.max(1, ...tot.map((x) => x.q));
   const barre = `<svg class="tend-graf" viewBox="0 0 100 80" preserveAspectRatio="none" aria-hidden="true">${tot.map((x, i) => { const h = Math.max(x.q ? 2 : 0, Math.round(x.q / max * 76)); return `<rect x="${(i * 5 + 0.8).toFixed(1)}" y="${80 - h}" width="3.4" height="${h}" rx="1" class="${i < 10 ? 'prima' : 'ora'}"/>`; }).join('')}</svg>`;
@@ -834,11 +834,16 @@ function tendenze() {
       <span class="tend-perc ${a.sale ? 'su' : a.scende ? 'giu' : ''}">${pc(a.perc)}</span></button>`; };
   return `
   <h1>Tendenze</h1>
-  <div class="tenue">Quanto girano gli articoli negli ultimi 10 giorni rispetto ai 10 giorni prima. Sono solo numeri: decidi tu se portare giù qualcosa in più.</div>
+  <div class="tenue">Quanto girano gli articoli negli ultimi 10 giorni rispetto ai 10 giorni prima. In cima, quelli che rischiano di finire prima del prossimo rifornimento.</div>
   <div class="carta tend-tot"><div class="riga-titolo"><b>Tutto il distributore</b><span class="tend-perc ${sOra > sPrima ? 'su' : sOra < sPrima ? 'giu' : ''}">${sPrima ? pc(Math.round((sOra / sPrima - 1) * 100)) : '—'}</span></div>
     ${barre}
     <div class="legenda"><span><i class="prima"></i>10 giorni prima: <b style="color:var(--testo)">${num(sPrima)}</b></span><span><i class="ora"></i>ultimi 10: <b style="color:var(--testo)">${num(sOra)}</b></span></div></div>
-  <h2>Girano di più · valuta se portarne di più</h2>
+  <h2>Rischiano di restare senza</h2>
+  <div class="tenue">Al ritmo degli ultimi 10 giorni, quanto serve fino al prossimo rifornimento (circa ${g.giorniTraRifornimenti()} giorni) contro quello che hai: distributore pieno più magazzino. Solo qui conviene portare giù di più.</div>
+  <div class="lista">${rischio.map((r) => { const p = g.prodotto(r.codice) || {}; return `<button type="button" class="tend" data-a="articolo" data-codice="${esc(r.codice)}">
+      <span class="tend-corpo"><b>${esc(r.codice)}</b><small class="tenue taglia">${esc(p.descrizione || '')}</small><small class="tenue">servono ${num(r.serve)} in ${r.giorni} giorni · hai ${num(r.hai)} (pieno ${num(p.carico_completo)} + magazzino ${num(p.magazzino || 0)})</small></span>
+      <span class="tend-perc su">+${r.extra}</span></button>`; }).join('') || '<div class="voce"><small class="tenue">Nessun rischio: per tutti gli articoli distributore pieno più magazzino bastano fino al prossimo rifornimento.</small></div>'}</div>
+  <h2>Girano di più</h2>
   <div class="lista">${su.map(riga).join('') || '<div class="voce"><small class="tenue">Nessun articolo gira molto più del solito.</small></div>'}</div>
   ${giu.length ? `<h2>Girano di meno</h2><div class="lista">${giu.map(riga).join('')}</div>` : ''}
   <h2>I più prelevati negli ultimi 10 giorni</h2>
@@ -997,7 +1002,7 @@ function altro() {
   <h1>Altro</h1>
   <h2>Ogni giorno</h2>
   <div class="lista">
-    ${voce('tendenze', 'Tendenze', (() => { const n = g.tendenze().filter((a) => a.sale).length; return n ? `${n} ${n === 1 ? 'articolo gira' : 'articoli girano'} di più` : 'Quanto girano gli articoli, in percentuale'; })())}
+    ${voce('tendenze', 'Tendenze', (() => { const n = g.aRischio().length; return n ? `${n} ${n === 1 ? 'articolo rischia' : 'articoli rischiano'} di restare senza` : 'Quanto girano gli articoli e chi rischia di finire'; })())}
     ${voce('magazzino', 'Magazzino', `${Object.values(g.s.prodotti).filter((p) => p.magazzino > 0).length} articoli con pezzi sullo scaffale`)}
     ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
