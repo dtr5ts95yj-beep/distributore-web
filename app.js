@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '8.1';
+const VERSIONE = '8.2';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -329,6 +329,9 @@ function contaNumeri() {
 
 function disegna() {
   document.querySelectorAll('#schede button').forEach((b) => b.setAttribute('aria-current', (b.id === 'tasto-app' ? (ui.app || ui.scheda === 'altro') : (!ui.app && b.dataset.scheda === ui.scheda)) ? 'page' : 'false'));
+  // pallino rosso sul pulsante App quando dentro c'è qualcosa da guardare (articoli che girano di più)
+  const ta = document.getElementById('tasto-app');
+  if (ta && g) { const n = g.tendenze().filter((x) => x.sale).length; let d = ta.querySelector('.app-dot'); if (n && !d) { d = document.createElement('i'); d.className = 'app-dot'; ta.appendChild(d); } if (d) { d.hidden = !n; d.textContent = n; } }
   let ap = document.getElementById('app-griglia');
   if (ui.app && g) { if (!ap) { ap = document.createElement('div'); ap.id = 'app-griglia'; document.body.appendChild(ap); } ap.innerHTML = schermataApp(); ap.hidden = false; }
   else if (ap) ap.hidden = true;

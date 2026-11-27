@@ -613,3 +613,15 @@ html:not([data-colori]) .sg-c.verde { background: #dcf5e3; } html:not([data-colo
 .app-ic:active .app-q { transform: scale(.92); }
 .mag-n { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; } .mag-n b { font-size: 22px; font-weight: 800; color: var(--viola); font-variant-numeric: tabular-nums; } .mag-n small { font-size: 11px; color: var(--tenue); }
 @media (min-width: 1000px) { #app-griglia { left: var(--lato); padding-top: 40px; } .app-grid { grid-template-columns: repeat(5, 1fr); } }
+
+/* barra: 4 sezioni e il pulsante App al centro, in rilievo */
+@media (max-width: 999px) {
+  #schede { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  #tasto-app { position: relative; color: var(--viola) !important; font-weight: 700 !important; justify-content: flex-end !important; padding-bottom: 2px; }
+  #tasto-app::before { content: ""; position: absolute; left: 50%; top: -30px; width: 58px; height: 58px; margin-left: -29px; border-radius: 29px;
+    background: linear-gradient(145deg, #8b5cf6, #6d28d9); box-shadow: 0 8px 20px rgba(109, 40, 217, .45), 0 0 0 4px var(--fondo); }
+  #tasto-app svg { position: absolute; z-index: 1; left: 50%; top: -15px; margin-left: -14px; width: 28px !important; height: 28px !important; stroke: #fff !important; stroke-width: 2 !important; }
+  #tasto-app[aria-current="page"]::before { background: linear-gradient(145deg, #7c3aed, #5b21b6); }
+}
+#tasto-app .app-dot { position: absolute; z-index: 2; top: -32px; left: 50%; margin-left: 14px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ff3b30; color: #fff; font-size: 11px; font-weight: 700; font-style: normal; line-height: 20px; text-align: center; box-shadow: 0 0 0 2px var(--fondo); }
+@media (min-width: 1000px) { #tasto-app .app-dot { position: static; margin-left: auto; box-shadow: none; } }
