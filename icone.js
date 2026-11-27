@@ -34,6 +34,8 @@ export const L = {
  "frecce": "<path d=\"M8 3 4 7l4 4\"/><path d=\"M4 7h16\"/><path d=\"m16 21 4-4-4-4\"/><path d=\"M20 17H4\"/>",
  "indietro": "<path d=\"m15 18-6-6 6-6\"/>",
  "chiudi": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>",
+ "griglia": "<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\"/>",
+ "trend": "<polyline points=\"22 7 13.5 15.5 8.5 10.5 2 17\"/><polyline points=\"16 7 22 7 22 13\"/>",
  "piu": "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>"
 };
 

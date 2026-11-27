@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '8.0';
+const VERSIONE = '8.1';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -328,13 +328,16 @@ function contaNumeri() {
 }
 
 function disegna() {
-  document.querySelectorAll('#schede button').forEach((b) => b.setAttribute('aria-current', b.dataset.scheda === ui.scheda ? 'page' : 'false'));
+  document.querySelectorAll('#schede button').forEach((b) => b.setAttribute('aria-current', (b.id === 'tasto-app' ? (ui.app || ui.scheda === 'altro') : (!ui.app && b.dataset.scheda === ui.scheda)) ? 'page' : 'false'));
+  let ap = document.getElementById('app-griglia');
+  if (ui.app && g) { if (!ap) { ap = document.createElement('div'); ap.id = 'app-griglia'; document.body.appendChild(ap); } ap.innerHTML = schermataApp(); ap.hidden = false; }
+  else if (ap) ap.hidden = true;
   $('#schede').hidden = !g;
   const s = $('#schermo');
   if (!g) { s.innerHTML = benvenuto(); return; }
-  const pagine = { tendenze, barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
+  const pagine = { magazzino, tendenze, barcodeab, aspetto, prelievi, storico, abbinamenti, impostazioni, backup, controllo, riepilogo, inventario, zipimportati, storicoimporta, ignorate, info };
   const html = ui.scheda === 'altro' && ui.pagina && pagine[ui.pagina]
-    ? `<button type="button" class="indietro" data-a="indietro">‹ Altro</button>${pagine[ui.pagina]()}`
+    ? `<button type="button" class="indietro" data-a="app">‹ App</button>${pagine[ui.pagina]()}`
     : ({ oggi, articoli, controllo, rifornimento, calendario, altro })[ui.scheda]();
   // mentre scrivi in una casella la casella resta quella (non si ricrea): la tastiera non si chiude e non torna alle lettere
   const vivo = document.activeElement, tieni = vivo && vivo.id && vivo.matches('input') && [...s.children].find((c) => c.contains(vivo));
@@ -791,6 +794,31 @@ function calendario() {
   <small class="tenue">Il giorno è quello dei prelievi. Tocca un giorno per la distinta: articoli e pezzi.</small>`;
 }
 
+function magazzino() {
+  const art = Object.values(g.s.prodotti).filter((p) => p.magazzino > 0).sort((a, b) => b.magazzino - a.magazzino || a.codice.localeCompare(b.codice));
+  const tot = art.reduce((t, p) => t + p.magazzino, 0);
+  return `<h1>Magazzino</h1>
+  <div class="tenue">Solo gli articoli che hanno pezzi sullo scaffale. Tocca un articolo per vederlo o correggerlo.</div>
+  <div class="numeri"><div><span>Articoli</span><strong>${num(art.length)}</strong></div><div><span>Pezzi sullo scaffale</span><strong style="color:var(--viola)">${num(tot)}</strong></div></div>
+  <div class="lista">${art.map((p) => `<button type="button" class="voce" data-a="articolo" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small><small class="tenue">nel distributore ${num(p.quantita)}${p.carico_completo != null ? ` / ${num(p.carico_completo)}` : ''}</small></span><span class="mag-n"><b>${num(p.magazzino)}</b><small>in magazzino</small></span></button>`).join('') || '<div class="voce"><small class="tenue">Nessun articolo in magazzino.</small></div>'}</div>`;
+}
+
+// Schermata App: tutte le sezioni come icone, a tutto schermo
+function schermataApp() {
+  const attesa = g.controlliInAttesa().length, gira = g.tendenze().filter((a) => a.sale).length;
+  const icona = (k, nome, n = 0, scheda = false) => { const [col, svg] = ICONE[k] || ['#636366', '']; return `<button type="button" class="app-ic" ${scheda ? `data-scheda="${k}"` : `data-a="apri-app" data-pagina="${k}"`}><span class="app-q" style="background:${col}"><svg viewBox="0 0 24 24">${svg}</svg>${n ? `<i class="app-n">${n}</i>` : ''}</span><small>${nome}</small></button>`; };
+  return `<div class="app-in">
+    <div class="app-testa"><b>App</b><button type="button" class="app-x" data-a="app" aria-label="Chiudi"><svg class="ico" viewBox="0 0 24 24">${L.chiudi}</svg></button></div>
+    <div class="app-grid">${icona('oggi', 'Oggi', 0, true)}${icona('articoli', 'Articoli', 0, true)}${icona('controllo', 'Verifica', attesa, true)}${icona('rifornimento', 'Rifornimento', 0, true)}${icona('calendario', 'Calendario', 0, true)}</div>
+    <h2>Strumenti</h2>
+    <div class="app-grid">${icona('magazzino', 'Magazzino')}${icona('tendenze', 'Tendenze', gira)}${icona('riepilogo', 'Settimana')}${icona('storico', 'Storico')}${icona('inventario', 'Inventario')}</div>
+    <h2>ZIP e codici</h2>
+    <div class="app-grid">${icona('zipimportati', 'ZIP')}${icona('storicoimporta', 'Importa storico')}${icona('abbinamenti', 'PDF e AS400')}${icona('barcodeab', 'Barcode')}</div>
+    <h2>Impostazioni</h2>
+    <div class="app-grid">${icona('impostazioni', 'Google Drive')}${icona('aspetto', 'Aspetto')}${icona('backup', 'Backup')}${icona('ignorate', 'Ignorate')}${icona('info', 'Info')}</div>
+  </div>`;
+}
+
 function tendenze() {
   const t = g.tendenze(), su = t.filter((a) => a.sale).sort((a, b) => b.perc - a.perc), giu = t.filter((a) => a.scende).sort((a, b) => a.perc - b.perc);
   const tot = g.serieGiorni(null, 20), sPrima = tot.slice(0, 10).reduce((t, x) => t + x.q, 0), sOra = tot.slice(10).reduce((t, x) => t + x.q, 0);
@@ -934,25 +962,31 @@ function storico() {
   ${eventi.length > mostra.length ? '<button type="button" class="btn vuoto" data-a="altri-storico">Mostra altri</button>' : ''}`;
 }
 
+// icone delle sezioni (menu e schermata App)
+const ICONE = {
+  oggi: ['#5e5ce6', L.casa],
+  articoli: ['#0a84ff', L.articoli],
+  rifornimento: ['#34c759', L.camion],
+  calendario: ['#ff453a', L.calendario],
+  controllo: ['#ff5f8f', L.controllo],
+  tendenze: ['#ff9f0a', L.trend],
+  prelievi: ['#ff9f0a', L.prelievi],
+  riepilogo: ['#af52de', L.riepilogo],
+  storico: ['#5e5ce6', L.storico],
+  magazzino: ['#a2845e', L.magazzino],
+  inventario: ['#30b0c7', L.inventario],
+  zipimportati: ['#34c759', L.zip],
+  storicoimporta: ['#64d2ff', L.scarica],
+  abbinamenti: ['#ff375f', L.link],
+  barcodeab: ['#bf5af2', L.barcode],
+  impostazioni: ['#0a84ff', L.nuvola],
+  ignorate: ['#8e8e93', L.vieta],
+  aspetto: ['#ff2d92', L.aspetto],
+  backup: ['#32d74b', L.scudo],
+  info: ['#636366', L.info],
+};
+
 function altro() {
-  const ICONE = {
-    controllo: ['#ff5f8f', L.controllo],
-    tendenze: ['#ff9f0a', L.riepilogo],
-    prelievi: ['#ff9f0a', L.prelievi],
-    riepilogo: ['#af52de', L.riepilogo],
-    storico: ['#5e5ce6', L.storico],
-    magazzino: ['#a2845e', L.magazzino],
-    inventario: ['#30b0c7', L.inventario],
-    zipimportati: ['#34c759', L.zip],
-    storicoimporta: ['#64d2ff', L.scarica],
-    abbinamenti: ['#ff375f', L.link],
-    barcodeab: ['#bf5af2', L.barcode],
-    impostazioni: ['#0a84ff', L.nuvola],
-    ignorate: ['#8e8e93', L.vieta],
-    aspetto: ['#ff2d92', L.aspetto],
-    backup: ['#32d74b', L.scudo],
-    info: ['#636366', L.info],
-  };
   const voce = (pag, titolo, sotto) => { const [col, svg] = ICONE[pag] || ['#636366', '']; return `<button type="button" class="voce menu" data-a="pagina" data-pagina="${pag}"><span class="m-ico" style="background:${col}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg></span><span class="corpo"><b>${titolo}</b><small>${sotto}</small></span>${ico.freccia}</button>`; };
   const attesa = g.controlliInAttesa().length;
   const conMag = Object.values(g.s.prodotti).filter((p) => p.magazzino > 0).length;
@@ -961,6 +995,7 @@ function altro() {
   <h2>Ogni giorno</h2>
   <div class="lista">
     ${voce('tendenze', 'Tendenze', (() => { const n = g.tendenze().filter((a) => a.sale).length; return n ? `${n} ${n === 1 ? 'articolo gira' : 'articoli girano'} di più` : 'Quanto girano gli articoli, in percentuale'; })())}
+    ${voce('magazzino', 'Magazzino', `${Object.values(g.s.prodotti).filter((p) => p.magazzino > 0).length} articoli con pezzi sullo scaffale`)}
     ${voce('riepilogo', 'Riepilogo della settimana', 'Com\'è andata la settimana scorsa')}
     ${voce('storico', 'Storico', `${num(g.s.movimenti.length)} movimenti · ricerca, mesi, esporta`)}
   </div>
@@ -1586,6 +1621,8 @@ const azioni = {
   'ctrl-elimina': (el) => { if (confirm(`Elimino il controllo del ${isoIta(el.dataset.data)}? I pezzi segnati escono dal rifornimento.`)) cambia(() => g.eliminaControllo(el.dataset.data), 'Controllo eliminato.'); },
   'vedi-riordino': () => { ui.scheda = 'articoli'; ui.filtro = 'riordino'; ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
   'vedi-sotto': () => { ui.scheda = 'articoli'; ui.filtro = 'sotto'; ui.pagina = ''; disegna(); },
+  'app': () => { ui.app = !ui.app; chiudiFoglio(); disegna(); },
+  'apri-app': async (el) => { ui.app = false; ui.scheda = 'altro'; ui.pagina = el.dataset.pagina; if (ui.pagina === 'backup') ui.backupElenco = await archivio.leggi('backup_elenco').catch(() => []); disegna(); window.scrollTo(0, 0); },
   'pagina': async (el) => { ui.pagina = el.dataset.pagina; if (ui.pagina === 'backup') ui.backupElenco = await archivio.leggi('backup_elenco').catch(() => []); disegna(); window.scrollTo(0, 0); },
   'indietro': () => { ui.pagina = ''; disegna(); window.scrollTo(0, 0); },
   'mese': (el) => { const [a, m] = ui.mese.split('-').map(Number); const d = new Date(a, m - 1 + Number(el.dataset.d), 1); ui.mese = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; disegna(); },
@@ -1670,7 +1707,7 @@ const azioni = {
 
 document.addEventListener('click', (e) => {
   const s = e.target.closest('[data-scheda]');
-  if (s) { ui.ordineFisso = null; if (s.dataset.scheda === 'rifornimento' && s.closest('#schede')) ui.rifPasso = ''; if (ui.scheda === s.dataset.scheda || s.dataset.scheda !== 'altro') ui.pagina = ''; ui.scheda = s.dataset.scheda; chiudiFoglio(); disegna(); window.scrollTo(0, 0); return; }
+  if (s) { ui.app = false; ui.ordineFisso = null; if (s.dataset.scheda === 'rifornimento' && s.closest('#schede')) ui.rifPasso = ''; if (ui.scheda === s.dataset.scheda || s.dataset.scheda !== 'altro') ui.pagina = ''; ui.scheda = s.dataset.scheda; chiudiFoglio(); disegna(); window.scrollTo(0, 0); return; }
   const el = e.target.closest('[data-a]');
   if (el && azioni[el.dataset.a]) { e.preventDefault(); azioni[el.dataset.a](el); }
 });
