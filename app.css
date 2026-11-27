@@ -587,3 +587,12 @@ html:not([data-colori]) .tile.manca .dist-box .si { background: #ffd1d9; } html:
 html:not([data-colori]) .stato-z.ok { background: #dcf5e3; } html:not([data-colori]) .stato-z.errore { background: #ffe5e9; } html:not([data-colori]) .stato-z.controlla { background: #fff1dc; }
 html:not([data-colori]) .sg-c.verde { background: #dcf5e3; } html:not([data-colori]) .sg-c.rossa { background: #ffe5e9; }
 .ct-testa > span:first-child { text-align: left !important; }
+
+.tend { width: 100%; background: none; border: 0; text-align: left; border-top: 1px solid var(--linea); }
+.lista > .tend:first-child { border-top: 0; }
+.tend-perc { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; color: var(--tenue); flex-shrink: 0; }
+.tend-perc.su { color: var(--arancio); } .tend-perc.giu { color: var(--verde); }
+.tend-tot .tend-graf { height: 80px; }
+.ver-tab { grid-template-columns: repeat(4, 1fr); } .ver-tab button { font-size: 13px; min-height: 38px; padding: 0 2px; }
+.ver-tab button { display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+.tab-n { font-style: normal; font-size: 11px; font-weight: 800; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px; padding: 0 5px; background: var(--arancio); color: #fff; }

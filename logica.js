@@ -800,13 +800,11 @@ export class Gestionale {
   andamento(codice, oggi = oggiIso()) {
     const p = this.s.prodotti[codice];
     if (!p) return null;
-    const passo = p.in_blister && p.pezzi_blister ? p.pezzi_blister : (p.pezzi_spira || 1);
     const u10 = this._consumoTra(codice, piuGiorni(oggi, -9), oggi), p10 = this._consumoTra(codice, piuGiorni(oggi, -19), piuGiorni(oggi, -10));
-    const media = u10 / 10, aumento = Math.max(0, u10 - p10) / 10;   // pezzi in più al giorno
-    const sale = u10 > p10 && (p10 === 0 || u10 >= p10 * 1.25), perc = p10 > 0 ? Math.round((u10 / p10 - 1) * 100) : (u10 > 0 ? 100 : 0);
-    const tre = Math.ceil(aumento * 3 - 1e-9);
-    const extra = sale && tre >= 2 ? Math.ceil(tre / passo) * passo : 0;
-    return { codice, u10, p10, media, aumento, perc, sale, extra };
+    const perc = p10 > 0 ? Math.round((u10 / p10 - 1) * 100) : (u10 > 0 ? 100 : 0);
+    const sale = u10 - p10 >= 2 && (p10 === 0 || u10 >= p10 * 1.25);
+    const scende = p10 - u10 >= 2 && u10 <= p10 * 0.75;
+    return { codice, u10, p10, media: u10 / 10, perc, sale, scende, extra: 0 };
   }
 
   /** Come consiglio(), ma con i numeri: { tipo: 'piu' | 'fermo', extra, perc, testo }. */
@@ -814,10 +812,7 @@ export class Gestionale {
     const p = this.s.prodotti[codice];
     if (!p) return null;
     const a = this.andamento(codice, oggi);
-    if (a && a.extra) {
-      const m = Math.round(a.aumento * 10) / 10;
-      return { tipo: 'piu', extra: a.extra, perc: a.perc, testo: `Ultimi 10 giorni ${a.u10} pezzi contro ${a.p10} dei 10 prima: ${m.toString().replace('.', ',')} in più al giorno. Porta giù ${a.extra} pezzi in più (3 giorni dell'aumento).` };
-    }
+    if (a && a.sale) return { tipo: 'piu', extra: 0, perc: a.perc, testo: `Gira di più: ${a.u10} pezzi negli ultimi 10 giorni contro ${a.p10} dei 10 prima (+${a.perc}%). Valuta se portarne giù qualcuno in più.` };
     const disp = (p.quantita || 0) + (p.magazzino || 0);
     const giorniStoria = Object.keys(this.s.consumi).sort()[0];
     if (disp > 0 && giorniStoria && (new Date(oggi) - new Date(giorniStoria)) / 86400000 >= 180) {
