@@ -9,7 +9,7 @@ import { apriLettore } from './lettore.js';
 import { creaExcel, fogliColleghi } from './excel.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
-const VERSIONE = '7.8';
+const VERSIONE = '7.9';
 
 // ------------------------------------------------------------------ archivio nel telefono (IndexedDB)
 const archivio = {
@@ -426,6 +426,32 @@ function esitiNonVisti() {
     <button type="button" class="btn vuoto piccolo" data-a="esito-visto" data-data="${x.data}">Ok, visto</button></div>`; }).join('');
 }
 
+// Riepilogo degli ammanchi (pezzi persi davvero: segnati nel controllo e mai comparsi nello ZIP)
+function riepilogoAmmanchi() {
+  const chiusi = g.s.controlli.filter((r) => r.stato === 'chiuso');
+  if (!chiusi.length) return '';
+  const persi = chiusi.filter((r) => r.ammanco > 0), mese = oggiIso().slice(0, 7);
+  const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+  const nomeMese = (m) => `${MESI[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`;
+  const perMese = {};
+  for (const r of chiusi) { const m = r.data.slice(0, 7); const x = (perMese[m] ||= { segnati: 0, persi: 0, giorni: new Set() }); x.segnati += r.mancanti; x.persi += r.ammanco || 0; x.giorni.add(r.data); }
+  const perArt = {};
+  for (const r of persi) { const x = (perArt[r.codice] ||= { codice: r.codice, pezzi: 0, volte: 0, ultima: '' }); x.pezzi += r.ammanco; x.volte++; if (r.data > x.ultima) x.ultima = r.data; }
+  const top = Object.values(perArt).sort((a, b) => b.pezzi - a.pezzi || b.volte - a.volte).slice(0, 10);
+  const qm = perMese[mese] || { segnati: 0, persi: 0 };
+  const tot = persi.reduce((t, r) => t + r.ammanco, 0), totSegn = chiusi.reduce((t, r) => t + r.mancanti, 0);
+  return `<h2>Riepilogo ammanchi</h2>
+  <div class="carta">
+    <div class="numeri"><div><strong style="color:${qm.persi ? 'var(--arancio)' : 'var(--verde)'}">${num(qm.persi)}</strong><small>persi a ${MESI[Number(mese.slice(5)) - 1]}</small></div><div><strong>${num(tot)}</strong><small>persi in tutto</small></div><div><strong>${totSegn ? Math.round((totSegn - tot) * 100 / totSegn) : 100}%</strong><small>spiegati dagli ZIP</small></div></div>
+    <small class="tenue">Su ${num(totSegn)} pezzi segnati nei controlli, ${num(totSegn - tot)} erano prelievi registrati (si sono annullati con lo ZIP) e ${num(tot)} sono mancati davvero: furti, perdite o errori.</small>
+    <div class="ct-tab"><div class="ct-riga ct-testa"><span>Mese</span><span>Controlli</span><span>Segnati</span><span>Persi</span></div>
+      ${Object.keys(perMese).sort().reverse().slice(0, 6).map((m) => { const x = perMese[m]; return `<div class="ct-riga"><span class="ct-art"><b>${nomeMese(m)}</b></span><b>${x.giorni.size}</b><b>${x.segnati}</b><b style="color:${x.persi ? 'var(--arancio)' : 'var(--verde)'}">${x.persi ? '−' + x.persi : '0'}</b></div>`; }).join('')}</div>
+    ${top.length ? `<b style="margin-top:6px">Articoli che spariscono più spesso</b>
+    <div class="ct-tab"><div class="ct-riga ct-testa"><span>Articolo</span><span>Volte</span><span>Persi</span><span>Ultima</span></div>
+      ${top.map((x) => `<div class="ct-riga"><span class="ct-art"><b>${esc(x.codice)}</b><small class="tenue taglia">${esc(g.prodotto(x.codice)?.descrizione || '')}</small></span><b>${x.volte}</b><b style="color:var(--arancio)">−${x.pezzi}</b><small class="tenue" style="text-align:center">${isoIta(x.ultima).slice(0, 5)}</small></div>`).join('')}</div>` : '<small class="tenue">Nessun ammanco finora: tutto quello che hai segnato è stato spiegato dagli ZIP.</small>'}
+  </div>`;
+}
+
 // Tabella del controllo sul posto: cosa hai segnato, cosa ha trovato lo ZIP, cosa resta
 function tabellaControllo(righe, chiuso) {
   const intest = chiuso ? '<span>Segnati</span><span>Nello ZIP</span><span>Ammanco</span>' : '<span>Segnati</span><span>Già nello ZIP</span><span></span>';
@@ -468,6 +494,7 @@ function controllo() {
     <small class="tenue">Aspetto lo ZIP del ${isoIta(a.data)} (di solito arriva la mattina dopo). Intanto questi pezzi sono già nel rifornimento da preparare.</small>
     ${tabellaControllo(a.righe, false)}
     <div class="affianca"><button type="button" class="btn vuoto piccolo" data-a="ctrl-modifica" data-data="${a.data}">Modifica</button><button type="button" class="btn pericolo piccolo" data-a="ctrl-elimina" data-data="${a.data}">Elimina</button></div></div>`).join('')}` : ''}
+  ${riepilogoAmmanchi()}
   ${(() => { const giorni = [...new Set(g.s.controlli.filter((r) => r.stato === 'chiuso').map((r) => r.data))].sort().reverse().slice(0, 5);
     return giorni.length ? `<h2>Controlli chiusi</h2>${giorni.map((d) => { const rr = g.s.controlli.filter((r) => r.stato === 'chiuso' && r.data === d), amm = rr.reduce((t, r) => t + (r.ammanco || 0), 0);
       return `<div class="carta"><div class="riga-titolo" style="align-items:center"><b>${GIORNI[new Date(d + 'T12:00').getDay()]} ${isoIta(d)}</b>${amm ? `<span class="cons su">ammanco ${amm}</span>` : '<span class="cons giu">tutto spiegato</span>'}</div>
@@ -957,7 +984,7 @@ function inventario() {
   <div class="carta"><b>Conta e correggi</b><small class="tenue">Scrivi quanti pezzi hai in tutto di ogni articolo, solo quelli diversi. Fino al carico completo li metto nel distributore, quelli in più sono magazzino. Applico tutto insieme e finisce nello storico.</small>
     <button type="button" class="btn vuoto" data-a="scan" data-dove="inventario">${ico.barcode} Trova con il barcode</button></div>
   <div class="lista">${el.map((p) => `<div class="inv" data-codice="${esc(p.codice)}"><span class="corpo"><b>${esc(p.codice)}</b><small class="tenue taglia">${esc(p.descrizione)}</small><small class="tenue">adesso ${num(p.quantita + (p.magazzino || 0))}${p.carico_completo != null ? ` · carico ${num(p.carico_completo)}` : ''}</small></span>
-    <label class="inv-c"><span>Totale contato</span><input type="number" inputmode="numeric" placeholder="${p.quantita + (p.magazzino || 0)}" value="${esc(conti[p.codice] ?? '')}" data-inv="${esc(p.codice)}" aria-label="Pezzi contati di ${esc(p.codice)}"></label></div>`).join('')}</div>
+    <label class="inv-c"><span>Totale contato</span><input type="number" inputmode="numeric" placeholder="${p.quantita + (p.magazzino || 0)}" value="${esc(conti[p.codice] ?? '')}" id="inv-${esc(p.codice)}" data-inv="${esc(p.codice)}" aria-label="Pezzi contati di ${esc(p.codice)}"></label></div>`).join('')}</div>
   <button type="button" class="btn" data-a="inv-applica" ${cambiati ? '' : 'disabled'}>Applica i conteggi${cambiati ? ` (${cambiati} articoli)` : ''}</button>
   <h2>Scorte minime</h2>
   <div class="carta"><small class="tenue">Come nel programma: una settimana di consumo medio degli ultimi 30 giorni. Si aggiornano da sole ogni 7 giorni${g.s.scorte_calcolate_il ? ` (ultima volta il ${isoIta(g.s.scorte_calcolate_il)})` : ''}.</small>
